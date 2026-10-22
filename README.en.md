@@ -19,7 +19,7 @@ Choose the scope in Table 1 before preparing tools or asking the agent to act. A
 | Functional device QA | Project, installed build, target device, scenario, and expected behavior | Item-by-item observations, pass/fail/unverified results, screenshots, and a representative interaction GIF in `report.md` |
 | Existing-app or Figma design review | Baseline app/build or exact Figma frame/version; candidate build; matching viewport, scale, theme, fonts, content, and screen state | Original PNGs, 25/50/75% overlays, visible diff, mismatch mask, pixel metrics, and a report locating discrepancies |
 | Design review with code fixes | The design-review inputs plus the permitted source and build/install scope | First-before versus final-after comparison, changed code references, recaptured evidence, and remaining differences |
-| Project policy, flows, and knowledge | A project path and the relevant policy or QA findings | Project-specific policy links, reusable flow contracts, confirmed findings, and revalidation conditions in the local Library store |
+| Project policy, flows, and knowledge | A project path and the relevant policy or QA findings | Project-specific policy links, reusable flow contracts, confirmed findings, and revalidation conditions in the project-specific user data store |
 | Test-account lookup or login | Project, environment, purpose, and—when logging in—a reviewed local profile and target device | A scoped account alias or login outcome, environment verification, and input-cleanup status; no password in the report |
 | Compare existing PNG files | Two supported PNGs with equal native pixel dimensions and matching color conditions | The same deterministic comparison artifacts, without requiring an app, device, or Figma connection |
 
@@ -137,7 +137,7 @@ In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Clau
 
 **Project policy and knowledge**
 
-> Before QA, read this project's local policy and known navigation flows. Apply the documented data-preservation rules. After the run, save newly confirmed findings and reusable flow evidence in this project's Library QA store, with their build scope and revalidation conditions. Keep raw captures on the selected storage.
+> Before QA, read this project's local policy and known navigation flows. Apply the documented data-preservation rules. After the run, save newly confirmed findings and reusable flow evidence in this project's QA user data store, with their build scope and revalidation conditions. Keep raw captures on the selected storage.
 
 **Accounts and trusted login profiles**
 
@@ -151,7 +151,7 @@ The helper verifies the currently selected environment; it does not switch envir
 
 ## Reading the results
 
-The default deliverable is a Markdown report with its referenced image/GIF files. Keep `report.md` and the selected `assets/` together when opening or sharing it; no separate HTML application is needed. Raw captures and intermediate attempts remain within the selected storage folder. Project knowledge links back to the relevant findings rather than copying raw media into Library notes. [1], [5]
+The default deliverable is a Markdown report with its referenced image/GIF files. Keep `report.md` and the selected `assets/` together when opening or sharing it; no separate HTML application is needed. Raw captures and intermediate attempts remain within the selected storage folder. Project knowledge links back to the relevant findings rather than copying raw media into the knowledge store. [1], [5]
 
 Table 3 distinguishes an observed result from missing preparation or evidence. Account selection, authentication, environment verification, and input cleanup remain separate outcomes.
 
@@ -187,7 +187,7 @@ An approved exclusion mask narrows the claim to the unmasked area; it must not c
 
 ## Storage and document map
 
-Table 5 shows what stays on the Mac and what belongs on the selected storage. Installing or updating the plugin does not migrate existing accounts or project knowledge. [3], [4], [5]
+Table 5 separates persistent user data from execution artifacts. User data stays outside the plugin installation folder; the default paths shown below apply to the supported macOS host. Installing or updating the plugin does not migrate existing accounts or project knowledge. [3], [4], [5]
 
 *Table 5. Local state and evidence storage*
 

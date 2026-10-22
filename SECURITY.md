@@ -14,6 +14,6 @@ The secure iOS runner source is checked against the official npm 0.21.30 source 
 
 Builds, caches, and raw evidence belong within the verified folder selected at setup, on internal or external storage. Missing or mismatched storage, unwritable paths, and symbolic links stop the operation; there is no automatic fallback outside the selected folder. Additional project or host policies, including an external-only build policy, still apply.
 
-Project policy and reusable knowledge stay in the local Library store. Plugin install directories contain no mutable account or project state.
+Project policy and reusable knowledge stay in the project-specific user data store, separate from the plugin installation. Plugin install directories contain no mutable account or project state.
 
 For a suspected vulnerability, stop the affected flow and keep the original evidence local. Use GitHub's private vulnerability reporting for [Jimmy-Jung/mobile-qa](https://github.com/Jimmy-Jung/mobile-qa) if enabled, or contact its maintainer privately. Do not post secrets or reproductions containing real accounts in public issues.
