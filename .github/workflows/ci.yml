@@ -10,7 +10,6 @@ jobs:
     runs-on: macos-latest
     env:
       PYTHONDONTWRITEBYTECODE: "1"
-      TMPDIR: ${{ runner.temp }}/mobile-qa/
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,7 +17,10 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Prepare isolated test scratch
-        run: mkdir -p "$TMPDIR"
+        run: |
+          qa_tmp="$RUNNER_TEMP/mobile-qa"
+          mkdir -p "$qa_tmp"
+          echo "TMPDIR=$qa_tmp/" >> "$GITHUB_ENV"
       - name: Install test dependencies
         run: python -m pip install -r requirements.txt PyYAML==6.0.2
       - name: Host and storage tests with mocked volumes

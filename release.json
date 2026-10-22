@@ -4,7 +4,7 @@
     ".agents/plugins/marketplace.json": "sha256:21355c732efa986a88795a80a0f24569bbaddaa94afc166446854efead5d5ff3",
     ".claude-plugin/marketplace.json": "sha256:ef669df247c1d53e9049e5350ce224d3fb35bc438b33e29568137dbb7526b102",
     ".claude-plugin/plugin.json": "sha256:b9bc3419992ff484b9e1194da57d213362681c4a1ab45b9ed04a9bc81b425123",
-    ".github/workflows/ci.yml": "sha256:5070bc6330c76a9163643dc011674c9fe04bb2fc347277977bdaff7d177122a0",
+    ".github/workflows/ci.yml": "sha256:c48634d9922ac194d5e49384e352f332a908074d615acefc95ae8337b1b65e6b",
     ".gitignore": "sha256:8fce2d61948bd35f70883fde1f0bfa6bd1eb8a151c38d9802e68493a896b1bf2",
     "LICENSE": "sha256:ce6ced4d95bfb2594aeb921b26dfbbaacef45ca02a0ed45f8c60cffa0f912572",
     "README.en.md": "sha256:c952ccc49308b2eaac526378074e57c207b68965c7f74fb5a1a93cfa8485493c",
