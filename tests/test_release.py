@@ -19,11 +19,11 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / ".claude-plugin").mkdir()
         for name in ["plugin.json", ".claude-plugin/plugin.json"]:
-            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.1.0"}))
+            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.1.1"}))
 
     def test_inventory_accepts_complete_release_and_detects_tampering(self):
         release.write_inventory(self.root)
-        self.assertEqual(release.verify_release(self.root)["version"], "0.1.0")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
         (self.root / "plugin.json").write_text("{}")
         with self.assertRaises(ValueError):
             release.verify_release(self.root)
@@ -37,7 +37,7 @@ class ReleaseTests(unittest.TestCase):
     def test_codex_install_receipt_is_excluded_only_from_installed_integrity(self):
         release.write_inventory(self.root)
         (self.root / ".codex-marketplace-install.json").write_text('{"revision":"synthetic"}')
-        self.assertEqual(release.verify_release(self.root)["version"], "0.1.0")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
         with self.assertRaises(ValueError):
             release.safety_check(self.root)
         (self.root / "plugin.json").write_text("{}")
@@ -55,6 +55,39 @@ class ReleaseTests(unittest.TestCase):
         (self.root / "scripts/.codex-marketplace-install.json").write_text("{}")
         with self.assertRaises(ValueError):
             release.verify_release(self.root)
+
+    def test_claude_in_use_markers_are_excluded_only_from_installed_integrity(self):
+        inventory = release.write_inventory(self.root)
+        (self.root / ".in_use").mkdir()
+        (self.root / ".in_use/40960").write_text('{"pid":40960}')
+        self.assertEqual(release.verify_release(self.root)["files"], inventory["files"])
+        with self.assertRaises(ValueError):
+            release.safety_check(self.root)
+
+    def test_in_use_exception_rejects_symlinks_nested_and_unrelated_files(self):
+        release.write_inventory(self.root)
+        markers = self.root / ".in_use"
+        markers.mkdir()
+        (markers / "40960").write_text("synthetic")
+        (markers / "54754").symlink_to(self.root / "plugin.json")
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+        (markers / "54754").unlink()
+        (markers / "nested").mkdir()
+        (markers / "nested/1").write_text("synthetic")
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+        (markers / "nested/1").unlink()
+        (markers / "nested").rmdir()
+        for name in ["stray.txt", "scripts/.in_use/1"]:
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("synthetic")
+                with self.assertRaises(ValueError):
+                    release.verify_release(self.root)
+                path.unlink()
+        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
 
     def test_korean_default_and_english_readme_are_both_in_the_release(self):
         (self.root / 'README.md').write_text('# Mobile QA\n\n한국어 사용 안내\n')

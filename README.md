@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-22 · Version: 0.1.0
+Author: JunyoungJung · 2026-10-22 · Version: 0.1.1
 
 [English](README.en.md) · [결과 리포트 예시](examples/design-review/report.md)
 
@@ -92,7 +92,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 Python 환경에 [requirements.txt](requirements.txt)의 패키지를 준비하고 기기 QA에는 `agent-device`를 별도로 설치합니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
-로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.1.0 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.0)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
+로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.1.1 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.1)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
 ## 최초 저장소 선택
 

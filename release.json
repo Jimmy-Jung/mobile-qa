@@ -1,14 +1,14 @@
 {
   "agent_device_version": "0.21.30",
   "files": {
-    ".agents/plugins/marketplace.json": "sha256:21355c732efa986a88795a80a0f24569bbaddaa94afc166446854efead5d5ff3",
-    ".claude-plugin/marketplace.json": "sha256:ef669df247c1d53e9049e5350ce224d3fb35bc438b33e29568137dbb7526b102",
-    ".claude-plugin/plugin.json": "sha256:b9bc3419992ff484b9e1194da57d213362681c4a1ab45b9ed04a9bc81b425123",
-    ".github/workflows/ci.yml": "sha256:c48634d9922ac194d5e49384e352f332a908074d615acefc95ae8337b1b65e6b",
+    ".agents/plugins/marketplace.json": "sha256:9eb01b01c270a228286d76d8235a139953d30593962719d7a89253b51c9cce5e",
+    ".claude-plugin/marketplace.json": "sha256:50d55a4dd49c69584b8b99144693cf750ad84e8ed25e14a173375e3ceead7a32",
+    ".claude-plugin/plugin.json": "sha256:54ea5f08a0cde22c7923e42949f343fa2bc897af0f61243e23c21ef7d0e65879",
+    ".github/workflows/ci.yml": "sha256:4014686b1f3b23292d17b8a905894917b1ff8a8a5bbd2eb62892b91bc17332a0",
     ".gitignore": "sha256:8fce2d61948bd35f70883fde1f0bfa6bd1eb8a151c38d9802e68493a896b1bf2",
     "LICENSE": "sha256:ce6ced4d95bfb2594aeb921b26dfbbaacef45ca02a0ed45f8c60cffa0f912572",
-    "README.en.md": "sha256:10583a0d38bac11849f94bc27047c25d9567431cc259377a71201d022e1e1dc5",
-    "README.md": "sha256:1fc027212162d414eff6400ffe850802be5fe7a46bab05f3375708c495dd2b2a",
+    "README.en.md": "sha256:16150c9b9e8a30a493563b59ccc40a8672dc5b5685a01b95bb83786ec405e9ca",
+    "README.md": "sha256:d4acc1bc3e02bacb0fc64e3161cc8502983d22ffe03f9ae92bedeccfb72e4474",
     "SECURITY.md": "sha256:09616b516efbf6f9248468372d5a193aa83eee586f3b88832904aab647a5f96a",
     "THIRD_PARTY_NOTICES.md": "sha256:edf33ab065d08ffc8d3206c90e7198cdd2f2600902505fb4d9c6254420498551",
     "agents/mobile-qa-runner.md": "sha256:44d238e765e0e5301cbc6175f4c01ed626114012e1a1109a66ca9f2a4c04043f",
@@ -31,9 +31,9 @@
     "integrations/codex/mobile-qa-runner.toml": "sha256:9903db1b85b06b5dff6c2ea064da7c075ffb79a41d887b6d0c4e1104e80f9035",
     "mobile_qa/__init__.py": "sha256:7670734d7b2c3c5ca23f5f945aaac21e1c62848750d4eda89f7ed61947974717",
     "mobile_qa/agent-device-0.21.30.json": "sha256:19d9f283923bc9de5e14179267e8ac853658226b2ae8f0c221c13218afe6e8e9",
-    "mobile_qa/release.py": "sha256:f0417e1765ebf1e4c189d0494ba90f3cdb2f05d047e6a42c1fb7a34f2c2da00d",
+    "mobile_qa/release.py": "sha256:a1df3a083f5ae173d560dffe59895f815f4c483cb4e5079265a41f5777803e22",
     "mobile_qa/storage.py": "sha256:632ae093866a66b96aa46acbb4b4ef535bf3d3ea524e56c5bc713fc2a14f9ad4",
-    "plugin.json": "sha256:90659232e13c6046b33e5ec85d571c058038060caa3be135d6c6aaef7bb8c385",
+    "plugin.json": "sha256:fcf5ea3adb39ed3ef890f9758ff44f4631b48c4d434c39833609e78d45db195d",
     "requirements.txt": "sha256:4bdec6dc3c44f893c851a4d0251c3fad1e04d710048b1a05b14cb92217f37078",
     "scripts/doctor.py": "sha256:684abdf62f117355a77e7c6cd04ad16d4de91069643b6217d761c1f712920a4c",
     "scripts/package.py": "sha256:6bf2f474170322177acd56041d6bdbdd97ceece864fd84045d530aa861bd9efd",
@@ -82,11 +82,11 @@
     "skills/test-accounts/tests/test_reference_release_login_plan.py": "sha256:f6069d8ceb669909568f1aff3b040e9fc0efa0158471a025d18f493980dd3e35",
     "tests/test_doctor.py": "sha256:1cd7969f2610a138ee2848acebb450fdd3a54f25809874c09f9f3eb9ba3b14d9",
     "tests/test_native_storage.py": "sha256:e51a0b4f431bbec767410eb9d10757fc2f32494cf070bf0ccb1418a2bfe79fc5",
-    "tests/test_package.py": "sha256:b516e9cb1a30e2c6636796a485f10823bff554310d2ac4ea2d6af0b976e7f9d6",
+    "tests/test_package.py": "sha256:8543a13890c5888244770f492fc5f1e025b637ee9a7d0c142ada02223cbc87f2",
     "tests/test_portable_builds.py": "sha256:92c2bd58014128aaa691d34034d7de0ba1f23cf53101a03aa1a426dbc0affe0b",
-    "tests/test_release.py": "sha256:5e30763024776f2c9a16ab5710971b07a75acc03bbc83e09083e9a91d44171e9",
+    "tests/test_release.py": "sha256:8b1cf92af220675ff0cd37638825e3a3f5e34bc280e78d3376df632366d67369",
     "tests/test_storage.py": "sha256:097eaedcf1020676db70341381699bf78f7459101b65bc34f1d8abdd5770a87a"
   },
   "schema_version": 1,
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

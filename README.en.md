@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-22 · Version: 0.1.0
+Author: JunyoungJung · 2026-10-22 · Version: 0.1.1
 
 [한국어](README.md)
 
@@ -96,7 +96,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.1.0 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.0) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.1.1 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.1) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
 
 ### First setup and readiness
 

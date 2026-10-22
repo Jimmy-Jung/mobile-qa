@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 
-RELEASE_VERSION = "0.1.0"
+RELEASE_VERSION = "0.1.1"
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {"plugin.json", "README.md", "README.en.md", "README.ko.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
               "SECURITY.md", "requirements.txt", ".gitignore"}
@@ -46,6 +46,14 @@ def package_files(root=ROOT, *, allow_install_receipt=False):
         if allow_install_receipt and relative.as_posix() == ".codex-marketplace-install.json":
             if not path.is_file():
                 raise ValueError("The host install receipt must be a regular file.")
+            continue
+        if allow_install_receipt and relative.parts[0] == ".in_use":
+            # Claude Code keeps per-process markers (.in_use/<pid>) in its installed copy.
+            # A marker may vanish while scanning; markers are never read or hashed.
+            marker_dir = len(relative.parts) == 1 and path.is_dir()
+            marker = len(relative.parts) == 2 and path.is_file()
+            if not (marker_dir or marker or not path.exists()):
+                raise ValueError("Host in-use markers must be regular files directly under .in_use.")
             continue
         if not path.is_file() or path.name in {".DS_Store", "release.json"} or path.suffix == ".pyc":
             continue
