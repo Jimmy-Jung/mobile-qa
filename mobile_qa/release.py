@@ -34,7 +34,7 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_object)
 
 
-def package_files(root=ROOT):
+def package_files(root=ROOT, *, allow_install_receipt=False):
     root = Path(root).resolve()
     files = {}
     for path in sorted(root.rglob("*")):
@@ -43,6 +43,10 @@ def package_files(root=ROOT):
             continue
         if path.is_symlink():
             raise ValueError("Release packages cannot contain symlinks.")
+        if allow_install_receipt and relative.as_posix() == ".codex-marketplace-install.json":
+            if not path.is_file():
+                raise ValueError("The host install receipt must be a regular file.")
+            continue
         if not path.is_file() or path.name in {".DS_Store", "release.json"} or path.suffix == ".pyc":
             continue
         permitted = (str(relative) in ROOT_FILES or relative.as_posix() in DOCUMENTATION_IMAGES or (
@@ -81,7 +85,7 @@ def verify_release(root=ROOT):
                 or type(inventory["schema_version"]) is not int or inventory["schema_version"] != 1
                 or inventory["version"] != RELEASE_VERSION
                 or inventory["agent_device_version"] != "0.21.30"
-                or inventory["files"] != package_files(root)):
+                or inventory["files"] != package_files(root, allow_install_receipt=True)):
             raise ValueError("Release files differ from the inventory. Rebuild and review the package.")
         for manifest in (root / "plugin.json", root / ".claude-plugin/plugin.json"):
             data = read_json(manifest)

@@ -34,6 +34,28 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.verify_release(self.root)
 
+    def test_codex_install_receipt_is_excluded_only_from_installed_integrity(self):
+        release.write_inventory(self.root)
+        (self.root / ".codex-marketplace-install.json").write_text('{"revision":"synthetic"}')
+        self.assertEqual(release.verify_release(self.root)["version"], "0.1.0")
+        with self.assertRaises(ValueError):
+            release.safety_check(self.root)
+        (self.root / "plugin.json").write_text("{}")
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+
+    def test_install_receipt_exception_rejects_symlinks_and_nested_files(self):
+        release.write_inventory(self.root)
+        receipt = self.root / ".codex-marketplace-install.json"
+        receipt.symlink_to(self.root / "plugin.json")
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+        receipt.unlink()
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts/.codex-marketplace-install.json").write_text("{}")
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+
     def test_korean_default_and_english_readme_are_both_in_the_release(self):
         (self.root / 'README.md').write_text('# Mobile QA\n\n한국어 사용 안내\n')
         (self.root / 'README.en.md').write_text('# Mobile QA\n\nEnglish usage guide\n')

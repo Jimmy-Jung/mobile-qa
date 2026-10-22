@@ -31,7 +31,7 @@
     "integrations/codex/mobile-qa-runner.toml": "sha256:753dd10fac9bf8ed9b5dcd924227d7732ce574ba24dbad1732b418a197be4c77",
     "mobile_qa/__init__.py": "sha256:7670734d7b2c3c5ca23f5f945aaac21e1c62848750d4eda89f7ed61947974717",
     "mobile_qa/agent-device-0.21.30.json": "sha256:19d9f283923bc9de5e14179267e8ac853658226b2ae8f0c221c13218afe6e8e9",
-    "mobile_qa/release.py": "sha256:b4948086c1a013623eaa1535e5f53652267a03ad9e102bab383ac181afce6aa7",
+    "mobile_qa/release.py": "sha256:f0417e1765ebf1e4c189d0494ba90f3cdb2f05d047e6a42c1fb7a34f2c2da00d",
     "mobile_qa/storage.py": "sha256:632ae093866a66b96aa46acbb4b4ef535bf3d3ea524e56c5bc713fc2a14f9ad4",
     "plugin.json": "sha256:90659232e13c6046b33e5ec85d571c058038060caa3be135d6c6aaef7bb8c385",
     "requirements.txt": "sha256:4bdec6dc3c44f893c851a4d0251c3fad1e04d710048b1a05b14cb92217f37078",
@@ -84,7 +84,7 @@
     "tests/test_native_storage.py": "sha256:e51a0b4f431bbec767410eb9d10757fc2f32494cf070bf0ccb1418a2bfe79fc5",
     "tests/test_package.py": "sha256:b516e9cb1a30e2c6636796a485f10823bff554310d2ac4ea2d6af0b976e7f9d6",
     "tests/test_portable_builds.py": "sha256:92c2bd58014128aaa691d34034d7de0ba1f23cf53101a03aa1a426dbc0affe0b",
-    "tests/test_release.py": "sha256:6bc6f11657448ac8b5a7e6eb0926e9fbc6103e97b9ea339c12a0c83f7108523e",
+    "tests/test_release.py": "sha256:5e30763024776f2c9a16ab5710971b07a75acc03bbc83e09083e9a91d44171e9",
     "tests/test_storage.py": "sha256:097eaedcf1020676db70341381699bf78f7459101b65bc34f1d8abdd5770a87a"
   },
   "schema_version": 1,
