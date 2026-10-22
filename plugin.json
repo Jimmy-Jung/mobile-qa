@@ -1,0 +1,33 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mobile-qa",
+  "version": "0.1.0",
+  "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login.",
+  "author": {
+    "name": "JunyoungJung"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mobile",
+    "qa",
+    "design-review",
+    "test-accounts"
+  ],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "Mobile QA",
+        "shortDescription": "Device QA, pixel comparison, and scoped test login",
+        "developerName": "JunyoungJung",
+        "category": "Developer Tools",
+        "defaultPrompt": [
+          "Use mobile-device-qa to verify this app and write an evidence-backed report."
+        ]
+      }
+    }
+  },
+  "homepage": "https://github.com/Jimmy-Jung/mobile-qa",
+  "repository": "https://github.com/Jimmy-Jung/mobile-qa"
+}

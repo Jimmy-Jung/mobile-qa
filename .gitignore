@@ -1,0 +1,18 @@
+# Author: JunyoungJung · 2026-10-22
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+.coverage*
+coverage.xml
+htmlcov/
+*.log
+*.xcresult/
+*.trace/
+*.zip
+.env
+.env.*
+!.env.example
+accounts.json
+credentials.json
+config.local.json

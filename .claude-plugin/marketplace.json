@@ -1,0 +1,15 @@
+{
+  "name": "mobile-qa-marketplace",
+  "owner": {
+    "name": "JunyoungJung"
+  },
+  "plugins": [
+    {
+      "name": "mobile-qa",
+      "version": "0.1.0",
+      "source": "./",
+      "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login."
+    }
+  ],
+  "description": "Local mobile device QA, pixel review, project knowledge, and scoped test login."
+}

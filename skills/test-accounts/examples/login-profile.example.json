@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "sample-staging",
+  "platform": "ios",
+  "app_id": "org.example.sample",
+  "environment": "staging",
+  "role": "tester",
+  "username_selector": {"identifier": "login.username"},
+  "password_selector": {"identifier": "login.password"},
+  "submit_selector": {"identifier": "login.submit"},
+  "environment_selector": {"label": "Staging"},
+  "success_selectors": [{"identifier": "home.ready"}],
+  "timeout_ms": 15000
+}

@@ -1,0 +1,5 @@
+# Author: JunyoungJung · 2026-10-22
+interface:
+  display_name: "Mobile QA 설정"
+  short_description: "첫 사용 시 내장·외장 저장 폴더를 선택하고 Mobile QA 로컬 준비 상태를 확인"
+  default_prompt: "$setup으로 Mobile QA의 내장 또는 외장 저장소에서 원하는 작업 폴더를 최초 설정하거나 기존 선택을 검증하고, 부족한 준비 사항을 알려 주세요."

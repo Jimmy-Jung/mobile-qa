@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "path": "reference.png",
+    "sha256": "9fb948efbc1514902c7da29e5dcfcde8a22377fa82c93839a265a7448f4738a3",
+    "size": [
+      390,
+      844
+    ],
+    "mode": "RGB",
+    "color_metadata": {
+      "icc_profile_sha256": null,
+      "srgb_rendering_intent": null,
+      "gamma": null,
+      "chromaticity": null
+    },
+    "color_action": "unchanged"
+  },
+  "candidate": {
+    "path": "candidate-final.png",
+    "sha256": "9fb948efbc1514902c7da29e5dcfcde8a22377fa82c93839a265a7448f4738a3",
+    "size": [
+      390,
+      844
+    ],
+    "mode": "RGB",
+    "color_metadata": {
+      "icc_profile_sha256": null,
+      "srgb_rendering_intent": null,
+      "gamma": null,
+      "chromaticity": null
+    },
+    "color_action": "unchanged"
+  },
+  "mask": null,
+  "raw_exact": true,
+  "raw_changed_pixels": 0,
+  "compared_pixels": 329160,
+  "excluded_pixels": 0,
+  "changed_pixels": 0,
+  "changed_ratio": 0.0,
+  "max_channel_difference": 0,
+  "mean_absolute_error": 0.0,
+  "changed_bbox": null,
+  "compared_exact": true,
+  "full_image_changed_pixels": 0,
+  "full_image_changed_bbox": null,
+  "color_processing": {
+    "mode": "native_rgba",
+    "rendering_intent": null,
+    "raw_exact_scope": "full decoded RGBA before color conversion and masking",
+    "compared_exact_scope": "RGBA after declared color handling, at unmasked pixels"
+  },
+  "metric_channels": "RGBA (including alpha and RGB under transparency)",
+  "bbox_format": "[left, top, right_exclusive, bottom_exclusive]",
+  "mask_rule": "0=compare; 255=exclude from metrics; visual artifacts show the full image",
+  "overlay_candidate_opacity": [
+    0.25,
+    0.5,
+    0.75
+  ],
+  "diff_visualization": "full-image absolute RGBA difference; max alpha difference included in RGB; nonzero brightness >=96",
+  "exactness_limit": "Image equality in the recorded scope; not an app or overall design approval.",
+  "artifacts": {
+    "overlay-25.png": "final/overlay-25.png",
+    "overlay-50.png": "final/overlay-50.png",
+    "overlay-75.png": "final/overlay-75.png",
+    "diff.png": "final/diff.png",
+    "mismatch-mask.png": "final/mismatch-mask.png",
+    "comparison.json": "final/comparison.json"
+  }
+}

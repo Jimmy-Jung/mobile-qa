@@ -1,0 +1,21 @@
+{
+  "name": "mobile-qa-marketplace",
+  "interface": {
+    "displayName": "Mobile QA"
+  },
+  "plugins": [
+    {
+      "name": "mobile-qa",
+      "version": "0.1.0",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

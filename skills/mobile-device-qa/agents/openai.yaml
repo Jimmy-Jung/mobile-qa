@@ -1,0 +1,7 @@
+# Author: JunyoungJung
+# Created: 2026-09-09
+# Updated: 2026-10-22
+interface:
+  display_name: "실기기 앱 검증"
+  short_description: "프로젝트별 지식 기반 실기기 QA, 앱·Figma 픽셀 디자인 검수와 수정 전후 보고"
+  default_prompt: "$mobile-device-qa로 Mac의 프로젝트별 QA 전용 저장소에서 정책·기존 지식·흐름을 확인해 실기기를 검증하고, 새 발견을 근거와 함께 갱신한 뒤 스크린샷·GIF 첨부 Markdown 보고서를 작성해 주세요. 디자인 일치 요청에는 기존 앱 또는 Figma 기준과 같은 크기의 캡처를 겹쳐 픽셀 차이를 분석하고, 승인된 코드 수정·재촬영 결과를 보고해 주세요. 수정 전후는 최초·최종 2열, 다중 대상은 N열로 비교해 주세요."

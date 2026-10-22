@@ -1,0 +1,17 @@
+{
+  "name": "mobile-qa",
+  "version": "0.1.0",
+  "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login.",
+  "author": {
+    "name": "JunyoungJung"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mobile",
+    "qa",
+    "design-review",
+    "test-accounts"
+  ],
+  "homepage": "https://github.com/Jimmy-Jung/mobile-qa",
+  "repository": "https://github.com/Jimmy-Jung/mobile-qa"
+}
