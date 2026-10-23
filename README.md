@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-22 · Version: 0.1.1
+Author: JunyoungJung · 2026-10-23 · Version: 0.2.0
 
 [English](README.en.md) · [결과 리포트 예시](examples/design-review/report.md)
 
@@ -72,6 +72,17 @@ GitHub은 Mermaid를 직접 표시합니다. VSCode 기본 Markdown Preview에�
 
 iOS 전용 계정 입력은 **agent-device 0.21.30**의 검증한 소스만 지원합니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
 
+### 사용자 도구 경로
+
+기본 탐지와 다른 설치 위치를 사용할 때는 해당 실행 환경에서 다음 값을 지정합니다. 플러그인은 전역 셸 설정이나 프로젝트 설정을 자동 변경하지 않습니다.
+
+- Android SDK: `ANDROID_HOME` 또는 `ANDROID_SDK_ROOT`. 둘 다 설정하면 같은 SDK를 가리켜야 합니다.
+- JDK: `JAVA_HOME`. 미지정 시 등록 JDK와 `PATH`의 같은 JDK에 속한 `java`·`javac`를 확인하고, 마지막으로 표준 Android Studio 번들 위치를 확인합니다.
+- Xcode: `DEVELOPER_DIR`. iOS 빌드에 사용한 실제 Developer 경로를 기록하고 전용 로그인 실행에도 같은 경로를 사용합니다.
+- iOS runner 소스: `MOBILE_QA_AGENT_DEVICE_PACKAGE`. CLI wrapper 때문에 패키지 위치를 찾지 못할 때 설치된 패키지 루트를 명시할 수 있습니다. 버전·공식 소스 해시 검사는 그대로 적용하며 잘못 지정한 경로를 다른 설치본으로 대체하지 않습니다.
+
+`doctor`의 `agent_device_source`는 전용 runner에 사용할 소스 검증 결과입니다. 이 값만으로 wrapper CLI나 기기 실행까지 검증했다고 판단하지 않습니다.
+
 ## 설치
 
 [GitHub 저장소](https://github.com/Jimmy-Jung/mobile-qa)를 marketplace로 등록하고 사용할 호스트에 설치합니다.
@@ -92,7 +103,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 Python 환경에 [requirements.txt](requirements.txt)의 패키지를 준비하고 기기 QA에는 `agent-device`를 별도로 설치합니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
-로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.1.1 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.1)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
+로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.2.0 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.0)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
 ## 최초 저장소 선택
 
@@ -105,7 +116,7 @@ python3 -B scripts/doctor.py
 
 저장된 설정이 없을 때만 macOS 폴더 선택 창이 열립니다. **내장 또는 외장 저장소의 원하는 기존 폴더**를 선택하면 실제 볼륨·마운트·볼륨 UUID·쓰기 가능 여부와 심볼릭 링크 없는 경로를 확인해 저장합니다. 다음부터는 동일한 볼륨을 검증하고 재사용합니다.
 
-내장·외장 여부는 플러그인의 선택 제한이 아니며, 프로젝트나 호스트가 외장 빌드 저장소를 요구하면 그 추가 정책을 함께 따릅니다.
+내장·외장 여부는 플러그인의 선택 제한이 아닙니다. 폴더 선택과 실행에는 프로젝트·호스트의 추가 저장 정책도 함께 적용합니다.
 
 저장소 연결이 해제됐거나 UUID가 다르면 중단하고 재연결·재선택을 안내합니다. 선택한 폴더 밖의 다른 경로로 자동 대체하지 않습니다. 위치 변경은 다음처럼 명시합니다.
 

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -43,17 +44,51 @@ def android_sdk():
     return sdk
 
 
-def java_home():
-    if os.environ.get("JAVA_HOME"):
-        return Path(os.environ["JAVA_HOME"]).expanduser().resolve()
-    result = subprocess.run(["/usr/libexec/java_home"], capture_output=True, text=True, check=False)
-    if result.returncode == 0 and result.stdout.strip():
-        return Path(result.stdout.strip()).resolve()
+def valid_java_home(path):
+    try:
+        root = Path(path).expanduser().resolve(strict=True)
+        tools = [(root / "bin" / name).resolve(strict=True) for name in ("java", "javac")]
+        if (tools[0].parent != tools[1].parent or tools[0].parent.name != "bin"
+                or any(tool in {Path("/usr/bin/java"), Path("/usr/bin/javac")} for tool in tools)
+                or any(not tool.is_file() or not os.access(tool, os.X_OK) for tool in tools)):
+            return None
+        return tools[0].parent.parent
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def studio_java_home():
     for base in (Path("/Applications"), Path.home() / "Applications"):
-        bundled = base / "Android Studio.app/Contents/jbr/Contents/Home"
-        if bundled.is_dir():
-            return bundled.resolve()
-    raise ValueError("JAVA_HOME으로 JDK 경로를 지정하세요.")
+        bundled = valid_java_home(base / "Android Studio.app/Contents/jbr/Contents/Home")
+        if bundled is not None:
+            return bundled
+    return None
+
+
+def java_home():
+    if "JAVA_HOME" in os.environ:
+        selected = valid_java_home(os.environ["JAVA_HOME"]) if os.environ["JAVA_HOME"] else None
+        if selected is None:
+            raise ValueError("JAVA_HOME에 실행 가능한 java와 javac가 있는 동일 JDK를 지정하세요.")
+        return selected
+    try:
+        result = subprocess.run(["/usr/libexec/java_home"], capture_output=True, text=True, check=False, timeout=10)
+        registered = valid_java_home(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
+        if registered is not None:
+            return registered
+    except (OSError, subprocess.SubprocessError):
+        pass
+    java, javac = shutil.which("java"), shutil.which("javac")
+    if java and javac:
+        actual_java, actual_javac = Path(java).resolve(), Path(javac).resolve()
+        if actual_java.parent == actual_javac.parent:
+            selected = valid_java_home(actual_java.parent.parent)
+            if selected is not None:
+                return selected
+    bundled = studio_java_home()
+    if bundled is not None:
+        return bundled
+    raise ValueError("JAVA_HOME 또는 PATH에 java와 javac가 함께 있는 JDK를 지정하세요.")
 
 
 def toolchain():

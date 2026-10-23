@@ -227,13 +227,34 @@ final class LoginChild {
     init(path: String, arguments: [String], temporaryDirectory: String, discardOutput: Bool = false) throws {
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
-        process.environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "TMPDIR": temporaryDirectory]
+        process.environment = try Self.childEnvironment(path: path, temporaryDirectory: temporaryDirectory)
         process.standardInput = input
         process.standardOutput = discardOutput ? FileHandle.nullDevice : output
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { throw SecureLoginFailure(code: "transport_start_failed") }
         try input.fileHandleForReading.close()
         try output.fileHandleForWriting.close()
+    }
+
+    static func childEnvironment(path: String, temporaryDirectory: String) throws -> [String: String] {
+        var environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "TMPDIR": temporaryDirectory]
+        if ["/usr/bin/xcrun", "/usr/bin/xcodebuild"].contains(path) {
+            guard let developer = DriverPins.iosDeveloperDirectory, let expected = DriverPins.iosXcodeBuildSHA256,
+                  expected.range(of: #"^[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
+                throw SecureLoginFailure(code: "ios_not_prepared")
+            }
+            let directory = URL(fileURLWithPath: developer).standardizedFileURL
+            let tool = directory.appendingPathComponent("usr/bin/xcodebuild")
+            guard directory.path == developer, directory.resolvingSymlinksInPath().path == developer,
+                  tool.resolvingSymlinksInPath().path == tool.path,
+                  FileManager.default.isExecutableFile(atPath: tool.path),
+                  let contents = try? Data(contentsOf: tool),
+                  SHA256.hash(data: contents).map({ String(format: "%02x", $0) }).joined() == expected else {
+                throw SecureLoginFailure(code: "driver_not_trusted")
+            }
+            environment["DEVELOPER_DIR"] = developer
+        }
+        return environment
     }
 
     var isRunning: Bool { process.isRunning }

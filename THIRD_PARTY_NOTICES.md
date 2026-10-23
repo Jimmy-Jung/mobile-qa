@@ -4,7 +4,7 @@ Author: JunyoungJung · 2026-10-22
 
 ## agent-device 0.21.30
 
-The iOS build helper copies selected runner and snapshot-presentation sources from a separately installed `agent-device` 0.21.30 into the user's selected external build folder and applies local account-input changes. The plugin does not bundle the upstream CLI, Apple SDKs, Android SDKs, or compiled runners. Preserve this notice when distributing the modified sources or binaries.
+The iOS build helper copies selected runner and snapshot-presentation sources from a separately installed `agent-device` 0.21.30 into the user's selected build folder and applies local account-input changes. The plugin does not bundle the upstream CLI, Apple SDKs, Android SDKs, or compiled runners. Preserve this notice when distributing the modified sources or binaries.
 
 Upstream: [Callstack agent-device, v0.21.30](https://github.com/callstack/agent-device/tree/v0.21.30)
 

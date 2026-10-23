@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-22 · Version: 0.1.1
+Author: JunyoungJung · 2026-10-23 · Version: 0.2.0
 
 [한국어](README.md)
 
@@ -82,6 +82,17 @@ Image comparison preserves the input dimensions: it does not resize, align, blur
 
 Use an exact baseline PNG and the same native pixel dimensions, color policy, and capture conditions. The [design-review procedure](skills/mobile-device-qa/references/design-review.md) lists supported input and color-handling limits. [2]
 
+### Custom tool locations
+
+Set these values in the execution environment when automatic discovery does not match your installation. The plugin does not change global shell or project settings.
+
+- Android SDK: `ANDROID_HOME` or `ANDROID_SDK_ROOT`; both must identify the same SDK if set together.
+- JDK: `JAVA_HOME`. Otherwise discovery checks registered JDKs, matching `java` and `javac` from `PATH`, and finally the standard Android Studio bundle locations.
+- Xcode: `DEVELOPER_DIR`. The iOS build records the actual Developer directory and reuses it for isolated login execution.
+- iOS runner sources: `MOBILE_QA_AGENT_DEVICE_PACKAGE`. Set the installed package root when a CLI wrapper hides its location. Version and official source hashes remain mandatory; an invalid explicit path does not fall back to another installation.
+
+The doctor's `agent_device_source` result verifies the isolated runner sources. It does not establish trust in a wrapper CLI or prove device execution.
+
 ### Install
 
 Register the [GitHub repository](https://github.com/Jimmy-Jung/mobile-qa) as a marketplace, then install the plugin in the host you use:
@@ -96,7 +107,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.1.1 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.1.1) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.2.0 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.0) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
 
 ### First setup and readiness
 
@@ -111,7 +122,7 @@ python3 -B scripts/doctor.py
 
 Setup opens a native folder chooser **only when there is no saved selection**. Choose any existing folder on internal or external storage. Setup verifies the actual volume, mount, UUID, writable status, and symbolic-link-free path, saves the folder and volume identity locally, and reuses them.
 
-The plugin allows both internal and external storage. If a project or host requires external build storage, follow that additional policy when choosing the folder and running work.
+The plugin allows both internal and external storage. Apply any additional project or host storage policy when choosing the folder and running work.
 
 To change the selection explicitly, run `python3 -B scripts/setup.py --storage-dir /path/to/storage-folder`. Setup and native build helpers reject unavailable, mismatched, or unwritable storage and symbolic-link paths; they do not fall back outside the selected folder. `MOBILE_QA_CONFIG` can select a separate non-secret local config file for isolated checks; normal users do not need it. [4]
 

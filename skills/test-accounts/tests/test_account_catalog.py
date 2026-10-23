@@ -40,6 +40,11 @@ def record(identifier="learner", **changes):
     }
 
 
+def canonical_record(identifier="tester", binding=None, **changes):
+    return {**{key: value for key, value in record(identifier, **changes).items() if key != "download_device"},
+            "device_binding": binding}
+
+
 def add_accounts(path, worker):
     catalog = Catalog(Path(path))
     for index in range(8):
@@ -91,6 +96,63 @@ class CatalogTests(unittest.TestCase):
                     "status": "not_found", "candidates": [],
                 })
 
+    def test_capabilities_are_labels_and_device_binding_is_explicit(self):
+        catalog = Catalog(self.path)
+        free = record("free", capabilities=["download"])
+        bound = canonical_record("bound", DEVICE, capabilities=["billing"])
+        catalog.add(free)
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["download"]), {"status": "selected", "candidates": [free]})
+        catalog.add(bound)
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"]), {"status": "needs_device", "candidates": []})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"], device="other", platform="ios"), {"status": "not_found", "candidates": []})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"], device=DEVICE["identifier"], platform="ios"), {"status": "selected", "candidates": [bound]})
+
+    def test_mixed_bindings_remain_ambiguous_without_implicit_device_priority(self):
+        catalog = Catalog(self.path)
+        free = canonical_record("free", capabilities=["billing"])
+        bound = canonical_record("bound", DEVICE, capabilities=["billing"])
+        catalog.add(free)
+        catalog.add(bound)
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"]), {"status": "needs_device", "candidates": []})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"], device=DEVICE["identifier"], platform="ios"), {"status": "ambiguous", "candidates": [free, bound]})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["billing"], device="other", platform="ios"), {"status": "selected", "candidates": [free]})
+
+    def test_binding_field_shapes_and_existing_file_bytes_are_preserved_on_read(self):
+        catalog = Catalog(self.path)
+        legacy = record("legacy", download_device=DEVICE)
+        canonical = canonical_record("canonical", DEVICE)
+        catalog.add(legacy)
+        catalog.add(canonical)
+        before = self.path.read_bytes()
+        observed = Catalog(self.path).list()
+        self.assertEqual(observed, [legacy, canonical])
+        self.assertNotIn("device_binding", observed[0])
+        self.assertNotIn("download_device", observed[1])
+        catalog.find(PROJECT, "staging", "learner", ["playback"], device=DEVICE["name"], platform="ios")
+        self.assertEqual(self.path.read_bytes(), before)
+        observed[1]["device_binding"]["name"] = "changed copy"
+        self.assertEqual(catalog.list(), [legacy, canonical])
+
+    def test_both_binding_fields_are_rejected_even_when_equal_or_null(self):
+        catalog = Catalog(self.path)
+        for canonical, legacy in [(DEVICE, DEVICE), (DEVICE, {**DEVICE, "name": "other"}), (None, DEVICE), (None, None)]:
+            with self.subTest(canonical=canonical is not None, legacy=legacy is not None), self.assertRaises(ValueError):
+                catalog.add(record(device_binding=canonical, download_device=legacy))
+        self.assertEqual(catalog.list(), [])
+        self.path.write_text(json.dumps([record(device_binding=DEVICE, download_device=DEVICE)]))
+        before = self.path.read_bytes()
+        with self.assertRaises(ValueError):
+            Catalog(self.path)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_legacy_saved_binding_limits_arbitrary_capability_requests(self):
+        catalog = Catalog(self.path)
+        legacy = record(download_device=DEVICE, capabilities=["arbitrary-feature"])
+        catalog.add(legacy)
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["arbitrary-feature"]), {"status": "needs_device", "candidates": []})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["arbitrary-feature"], device=DEVICE["name"], platform="android"), {"status": "not_found", "candidates": []})
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["arbitrary-feature"], device=DEVICE["name"], platform="ios"), {"status": "selected", "candidates": [legacy]})
+
     def test_legacy_records_receive_defaults_without_rewriting_storage(self):
         Catalog(self.path)
         legacy = record()
@@ -107,7 +169,7 @@ class CatalogTests(unittest.TestCase):
         catalog.add(shared)
         self.assertEqual(catalog.list(PROJECT), [shared])
         self.assertEqual(catalog.list(RELATED_PROJECT), [shared])
-        self.assertEqual(catalog.find(RELATED_PROJECT, "staging", "learner", ["playback"]), {
+        self.assertEqual(catalog.find(RELATED_PROJECT, "staging", "learner", ["playback"], device=DEVICE["name"], platform="ios"), {
             "status": "selected", "candidates": [shared],
         })
         self.assertEqual(catalog.list(RELATED_PROJECT + "-other"), [])
@@ -146,22 +208,22 @@ class CatalogTests(unittest.TestCase):
             related_projects=[RELATED_PROJECT], download_device=DEVICE,
         )])
 
-    def test_download_requires_explicit_device_and_platform_without_candidates(self):
+    def test_device_context_is_required_only_after_matching_bound_candidates_exist(self):
         catalog = Catalog(self.path)
-        for registered in [False, True]:
-            if registered:
-                catalog.add(record(download_device=DEVICE))
-            for selection in [{}, {"device": DEVICE["name"]}, {"platform": "ios"}]:
-                with self.subTest(registered=registered, provided=tuple(selection)):
-                    self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["download"], **selection), {
-                        "status": "needs_device", "candidates": [],
-                    })
+        self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["download"]), {
+            "status": "not_found", "candidates": [],
+        })
+        catalog.add(record(download_device=DEVICE))
+        for selection in [{}, {"device": DEVICE["name"]}, {"platform": "ios"}]:
+            with self.subTest(provided=tuple(selection)):
+                self.assertEqual(catalog.find(PROJECT, "staging", "learner", ["download"], **selection), {
+                    "status": "needs_device", "candidates": [],
+                })
 
-    def test_download_matches_only_the_registered_device_name_or_identifier(self):
+    def test_legacy_binding_matches_only_the_registered_device_name_or_identifier(self):
         catalog = Catalog(self.path)
         shared = record(related_projects=[RELATED_PROJECT], download_device=DEVICE)
         catalog.add(shared)
-        catalog.add(record("unregistered-device"))
         catalog.add(record("other-environment", environment="production", download_device=DEVICE))
         catalog.add(record("other-project", project="github.com/example/other", download_device=DEVICE))
         catalog.add(record("other-role", role="admin", download_device=DEVICE))
@@ -315,10 +377,11 @@ class CatalogTests(unittest.TestCase):
         devices.extend({**DEVICE, "identifier": value} for value in [123, "", " ", "a" * 257, "bad\ridentifier", "bad\x7fidentifier"])
         devices.extend({**DEVICE, field: "sensitive-value"} for field in ["username", "password", "token", "extra"])
         for device in devices:
-            with self.subTest(value_type=type(device).__name__):
-                with self.assertRaises(ValueError) as error:
-                    catalog.add(record(download_device=device))
-                self.assertNotIn("sensitive-", str(error.exception))
+            for candidate in [record(download_device=device), canonical_record(binding=device)]:
+                with self.subTest(value_type=type(device).__name__, canonical="device_binding" in candidate):
+                    with self.assertRaises(ValueError) as error:
+                        catalog.add(candidate)
+                    self.assertNotIn("sensitive-", str(error.exception))
         self.assertEqual(catalog.list(), [])
 
     def test_device_text_length_boundaries_are_accepted(self):

@@ -19,11 +19,11 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / ".claude-plugin").mkdir()
         for name in ["plugin.json", ".claude-plugin/plugin.json"]:
-            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.1.1"}))
+            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.2.0"}))
 
     def test_inventory_accepts_complete_release_and_detects_tampering(self):
         release.write_inventory(self.root)
-        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.2.0")
         (self.root / "plugin.json").write_text("{}")
         with self.assertRaises(ValueError):
             release.verify_release(self.root)
@@ -37,7 +37,7 @@ class ReleaseTests(unittest.TestCase):
     def test_codex_install_receipt_is_excluded_only_from_installed_integrity(self):
         release.write_inventory(self.root)
         (self.root / ".codex-marketplace-install.json").write_text('{"revision":"synthetic"}')
-        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.2.0")
         with self.assertRaises(ValueError):
             release.safety_check(self.root)
         (self.root / "plugin.json").write_text("{}")
@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     release.verify_release(self.root)
                 path.unlink()
-        self.assertEqual(release.verify_release(self.root)["version"], "0.1.1")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.2.0")
 
     def test_korean_default_and_english_readme_are_both_in_the_release(self):
         (self.root / 'README.md').write_text('# Mobile QA\n\n한국어 사용 안내\n')
@@ -141,6 +141,34 @@ class ReleaseTests(unittest.TestCase):
         (self.root / "README.md").write_text("/" + "Users/real-person/private")
         with self.assertRaises(ValueError):
             release.write_inventory(self.root)
+
+    def test_private_paths_with_spaces_and_non_ascii_names_are_rejected(self):
+        slash = "/"
+        backslash = chr(92)
+        paths = [
+            slash + "Users/Example User/project",
+            slash + "Users/가상사용자/project",
+            slash + "Users/example-user",
+            slash + "home/example-user/project",
+            slash + "home/example-user",
+            "C:" + backslash + "Users" + backslash + "Example User" + backslash + "project",
+            "C:" + backslash + "Users" + backslash + "example-user",
+            "C:" + backslash * 2 + "Users" + backslash * 2 + "example-user",
+            slash + "System/Volumes/Data/Users/example-user/project",
+            slash + "run/media/example-user/disk/project",
+            slash + "Volumes/Example Disk/project",
+        ]
+        for private_path in paths:
+            with self.subTest(path=private_path):
+                (self.root / "README.md").write_text(private_path)
+                with self.assertRaises(ValueError):
+                    release.write_inventory(self.root)
+
+    def test_user_relative_defaults_and_public_urls_are_publishable(self):
+        (self.root / "README.md").write_text(
+            "~/Library/Application Support/mobile-qa/config.json\n"
+            "https://example.com/home/profile/\n")
+        self.assertIn("README.md", release.write_inventory(self.root)["files"])
 
     def test_manifests_must_have_the_same_version(self):
         (self.root / ".claude-plugin/plugin.json").write_text(json.dumps({"name": "mobile-qa", "version": "0.0.9"}))

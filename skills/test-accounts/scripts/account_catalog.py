@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 DEFAULT_CATALOG_PATH = Path.home() / ".config" / "agent-test-accounts" / "accounts.json"
 _FIELDS = {"id", "project", "environment", "role", "capabilities", "keychain_ref"}
-_OPTIONAL_FIELDS = {"related_projects", "related_environments", "download_device"}
+_OPTIONAL_FIELDS = {"related_projects", "related_environments", "device_binding", "download_device"}
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]+)?\Z")
 
@@ -74,19 +74,31 @@ def _device_text(value: object, limit: int) -> bool:
     )
 
 
-def download_device(value: object) -> dict | None:
+def device_binding(value: object) -> dict | None:
     """Validate user-reported device metadata without inspecting a connected device."""
     if value is None:
         return None
     if not isinstance(value, dict) or set(value) != {"platform", "name", "identifier"}:
-        raise ValueError("Download device metadata has unsupported or missing fields.")
+        raise ValueError("Device binding metadata has unsupported or missing fields.")
     if (
         value["platform"] not in ("ios", "android")
         or not _device_text(value["name"], 128)
         or (value["identifier"] is not None and not _device_text(value["identifier"], 256))
     ):
-        raise ValueError("Download device metadata is invalid.")
+        raise ValueError("Device binding metadata is invalid.")
     return dict(value)
+
+
+def download_device(value: object) -> dict | None:
+    """Compatibility validator for the original metadata field."""
+    return device_binding(value)
+
+
+def bound_device(record: dict) -> dict | None:
+    """Resolve one explicit binding, preserving the legacy field without migration."""
+    if "device_binding" in record and "download_device" in record:
+        raise ValueError("Account metadata must use only one device binding field.")
+    return device_binding(record.get("device_binding", record.get("download_device")))
 
 
 def _record(value: object) -> dict:
@@ -100,12 +112,13 @@ def _record(value: object) -> dict:
     if not _project(value["project"]):
         raise ValueError("Account metadata contains an invalid project key.")
     reference(value["keychain_ref"])
+    binding_key = "device_binding" if "device_binding" in value else "download_device"
     return {
         **value,
         "capabilities": _capabilities(value["capabilities"]),
         "related_projects": _related_projects(value.get("related_projects", []), value["project"]),
         "related_environments": _related_environments(value.get("related_environments", []), value["environment"]),
-        "download_device": download_device(value.get("download_device")),
+        binding_key: bound_device(value),
     }
 
 
@@ -344,19 +357,18 @@ class Catalog:
             raise ValueError("Device selection is invalid.")
         if platform is not None and platform not in ("ios", "android"):
             raise ValueError("Device platform selection is invalid.")
-        if "download" in required and (device is None or platform is None):
-            return {"status": "needs_device", "candidates": []}
         candidates = [
             item for item in self.list(project)
             if (item["environment"] == environment or environment in item["related_environments"])
             and item["role"] == role
             and required.issubset(item["capabilities"])
         ]
-        if "download" in required:
-            candidates = [
-                item for item in candidates if item["download_device"] is not None
-                and item["download_device"]["platform"] == platform
-                and device in (item["download_device"]["name"], item["download_device"]["identifier"])
-            ]
+        bindings = [(item, bound_device(item)) for item in candidates]
+        if any(binding is not None for _, binding in bindings) and (device is None or platform is None):
+            return {"status": "needs_device", "candidates": []}
+        candidates = [
+            item for item, binding in bindings if binding is None
+            or (binding["platform"] == platform and device in (binding["name"], binding["identifier"]))
+        ]
         status = "not_found" if not candidates else "selected" if len(candidates) == 1 else "ambiguous"
         return {"status": status, "candidates": candidates}

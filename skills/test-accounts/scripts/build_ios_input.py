@@ -26,6 +26,23 @@ IGNORED = {".build", ".swiftpm", "xcuserdata", "SnapshotPresentationConformance"
 
 
 def agent_device_package():
+    explicit = os.environ.get("MOBILE_QA_AGENT_DEVICE_PACKAGE")
+    if explicit is not None:
+        try:
+            path = Path(explicit).expanduser()
+            if not explicit or not path.is_absolute():
+                raise ValueError
+            package = path.resolve(strict=True)
+            data = read_json(package / "package.json")
+            if (not isinstance(data, dict) or data.get("name") != "agent-device" or data.get("version") != "0.21.30"
+                    or not isinstance(data.get("bin"), dict) or not isinstance(data["bin"].get("agent-device"), str)):
+                raise ValueError
+            entry = (package / data["bin"]["agent-device"]).resolve(strict=True)
+            if not entry.is_file() or not entry.is_relative_to(package):
+                raise ValueError
+            return package
+        except (OSError, ValueError, TypeError):
+            raise ValueError("MOBILE_QA_AGENT_DEVICE_PACKAGE에 공식 agent-device 0.21.30 패키지 폴더를 지정하세요.") from None
     binary = shutil.which("agent-device")
     if binary is None:
         raise ValueError("agent-device 0.21.30을 PATH에 설치하세요.")
@@ -42,6 +59,26 @@ def agent_device_package():
             raise ValueError("검증한 agent-device 0.21.30 CLI 패키지가 아닙니다.")
         return directory
     raise ValueError("agent-device 패키지 출처를 확인할 수 없습니다.")
+
+
+def developer_directory(environment=None):
+    environment = dict(os.environ) if environment is None else environment
+    try:
+        result = subprocess.run(["/usr/bin/xcrun", "--find", "xcodebuild"], env=environment,
+                                capture_output=True, text=True, check=False, timeout=10)
+        if result.returncode or not result.stdout.strip():
+            raise ValueError
+        tool = Path(result.stdout.strip())
+        if not tool.is_absolute():
+            raise ValueError
+        tool = tool.resolve(strict=True)
+        developer = tool.parents[2]
+        if (tool == Path("/usr/bin/xcodebuild") or tool != developer / "usr/bin/xcodebuild"
+                or not tool.is_file() or not os.access(tool, os.X_OK)):
+            raise ValueError
+        return developer
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        raise ValueError("선택한 Xcode의 실제 Developer 디렉터리와 xcodebuild를 확인하세요.") from None
 
 
 def package_identity(package=None):
@@ -167,7 +204,7 @@ def verify_separate_build_output(directory, commands):
         raise ValueError("같은 iOS runner 출력 경로를 사용하는 Xcode 작업이 진행 중입니다.")
 
 
-def external_build_paths(directory):
+def selected_build_paths(directory):
     paths = {
         "derived_data": directory / "DerivedData",
         "temporary": directory / "tmp",
@@ -188,12 +225,13 @@ def build(team_id=None, unsigned=False):
         raise ValueError("macOS에서만 빌드할 수 있습니다.")
     verify_release()
     directory = helper_directory().parent / "IOSInput"
-    paths = external_build_paths(directory)
+    paths = selected_build_paths(directory)
     signing = signing_settings(team_id, unsigned)
     cache_settings = {"CACHE_ROOT": str(paths["cache_root"]),
                       "CLANG_MODULE_CACHE_PATH": str(paths["module_cache"]),
                       "SWIFT_MODULE_CACHE_PATH": str(paths["module_cache"])}
     environment = {**os.environ, **cache_settings, "TMPDIR": str(paths["temporary"]) + "/"}
+    environment["DEVELOPER_DIR"] = str(developer_directory(environment))
     verify_separate_builds(directory)
     directory.mkdir(parents=True, exist_ok=True)
     with build_lock(directory):
@@ -204,9 +242,11 @@ def build(team_id=None, unsigned=False):
 
 def _build(directory, paths, signing, cache_settings, environment, unsigned):
     release_digest, identity = current_digest(), package_identity()
+    xcodebuild = Path(environment["DEVELOPER_DIR"]) / "usr/bin/xcodebuild"
+    xcodebuild_digest = hashlib.sha256(xcodebuild.read_bytes()).hexdigest()
     runner, hashes = prepare(directory)
     # The patched source is isolated from the globally installed automation runner.
-    command = ["xcodebuild", "-quiet", "-project", str(runner / "AgentDeviceRunner.xcodeproj"),
+    command = ["/usr/bin/xcodebuild", "-quiet", "-project", str(runner / "AgentDeviceRunner.xcodeproj"),
                "-scheme", "AgentDeviceRunner", "-configuration", "Debug", "-destination", "generic/platform=iOS",
                "-derivedDataPath", str(paths["derived_data"]),
                "-clonedSourcePackagesDirPath", str(paths["cloned_packages"]),
@@ -241,9 +281,12 @@ def _build(directory, paths, signing, cache_settings, environment, unsigned):
                 disable_attachments(child)
     disable_attachments(data)
     xctestrun.write_bytes(plistlib.dumps(data))
-    if current_digest() != release_digest or package_identity() != identity:
+    if (current_digest() != release_digest or package_identity() != identity
+            or hashlib.sha256(xcodebuild.read_bytes()).hexdigest() != xcodebuild_digest):
         raise ValueError("빌드 중 플러그인 또는 agent-device가 변경되었습니다. 다시 빌드하세요.")
     manifest = {"schema_version": 1, "release_digest": release_digest,
+                "developer_dir": environment["DEVELOPER_DIR"],
+                "xcodebuild_sha256": xcodebuild_digest,
                 "agent_device_identity": identity, "source_root": str(runner.parents[1]), "agent_device_version": "0.21.30", "port": PORT,
                 "app_bundle_id": APP_BUNDLE, "test_bundle_id": TEST_BUNDLE,
                 "xctestrun": str(xctestrun), "signed": not unsigned, "source_sha256": hashes,

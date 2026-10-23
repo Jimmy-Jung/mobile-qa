@@ -23,6 +23,142 @@ import keychain_store as store
 
 
 class PortableBuildTests(unittest.TestCase):
+    def test_jdk_resolution_supports_unregistered_path_pair_and_rejects_mixed_pair(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ("java", "javac"):
+                tool = root / "jdk/bin" / name
+                tool.parent.mkdir(parents=True, exist_ok=True)
+                tool.write_text("synthetic-tool")
+                tool.chmod(0o755)
+            paths = {name: str(root / "jdk/bin" / name) for name in ("java", "javac")}
+            unavailable = subprocess.CompletedProcess([], 1, stdout="")
+            with patch.dict(android.os.environ, {}, clear=True), \
+                 patch.object(android.subprocess, "run", return_value=unavailable), \
+                 patch.object(android.shutil, "which", side_effect=lambda name: paths[name]):
+                self.assertEqual(android.java_home(), (root / "jdk").resolve())
+                paths["java"] = str(root / "other/bin/java")
+                with patch.object(android, "studio_java_home", return_value=None):
+                    with self.assertRaises(ValueError):
+                        android.java_home()
+            with patch.dict(android.os.environ, {"JAVA_HOME": str(root / "missing")}, clear=True), \
+                 patch.object(android.subprocess, "run") as run:
+                with self.assertRaises(ValueError):
+                    android.java_home()
+                run.assert_not_called()
+
+    def test_registered_jdk_precedes_path_and_studio_remains_last_fallback(self):
+        with tempfile.TemporaryDirectory() as folder:
+            jdk = Path(folder) / "Registered JDK"
+            for name in ("java", "javac"):
+                path = jdk / "bin" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("synthetic-tool")
+                path.chmod(0o755)
+            with patch.dict(android.os.environ, {}, clear=True), \
+                 patch.object(android.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=str(jdk))), \
+                 patch.object(android.shutil, "which") as which, patch.object(android, "studio_java_home") as studio:
+                self.assertEqual(android.java_home(), jdk.resolve())
+                which.assert_not_called()
+                studio.assert_not_called()
+            with patch.dict(android.os.environ, {}, clear=True), \
+                 patch.object(android.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="")), \
+                 patch.object(android.shutil, "which", return_value=None), \
+                 patch.object(android, "studio_java_home", return_value=jdk):
+                self.assertEqual(android.java_home(), jdk)
+
+    def test_tool_discovery_timeouts_are_bounded_and_do_not_echo_raw_output(self):
+        expired = subprocess.TimeoutExpired("synthetic-discovery", 10, output="secret-sentinel")
+        with patch.object(ios.subprocess, "run", side_effect=expired) as run:
+            with self.assertRaises(ValueError) as error:
+                ios.developer_directory({})
+            self.assertNotIn("secret-sentinel", str(error.exception))
+            self.assertEqual(run.call_args.kwargs["timeout"], 10)
+        with patch.dict(android.os.environ, {}, clear=True), \
+             patch.object(android.subprocess, "run", side_effect=expired) as run, \
+             patch.object(android.shutil, "which", return_value=None), \
+             patch.object(android, "studio_java_home", return_value=None):
+            with self.assertRaises(ValueError) as error:
+                android.java_home()
+            self.assertNotIn("secret-sentinel", str(error.exception))
+            self.assertEqual(run.call_args.kwargs["timeout"], 10)
+
+    def test_developer_directory_records_actual_xcrun_selection_and_rejects_invalid_tool(self):
+        with tempfile.TemporaryDirectory() as folder:
+            developer = Path(folder) / "Renamed Developer"
+            executable = developer / "usr/bin/xcodebuild"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("synthetic-xcodebuild")
+            executable.chmod(0o755)
+            environment = {"DEVELOPER_DIR": str(developer)}
+            with patch.object(ios.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=str(executable) + "\n")) as run:
+                self.assertEqual(ios.developer_directory(environment), developer.resolve())
+                self.assertEqual(run.call_args.kwargs["env"], environment)
+                executable.chmod(0o644)
+                with self.assertRaises(ValueError):
+                    ios.developer_directory(environment)
+
+    def test_helper_carries_verified_ios_developer_identity_and_rejects_changed_tool(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "NativeHelper"
+            directory.mkdir()
+            ios_root = root / "IOSInput"
+            source_root, products = ios_root / "Source", ios_root / "Products"
+            source_root.mkdir(parents=True)
+            (source_root / "source.swift").write_text("synthetic-source")
+            for name in ("Runner.app", "Tests.app"):
+                (products / "Debug-iphoneos" / name).mkdir(parents=True)
+            xctestrun = products / "fixture.xctestrun"
+            xctestrun.write_text("synthetic-run")
+            developer = root / "Chosen Developer"
+            tool = developer / "usr/bin/xcodebuild"
+            tool.parent.mkdir(parents=True)
+            tool.write_text("synthetic-tool")
+            tool.chmod(0o755)
+            manifest = {"signed": True, "release_digest": "a" * 64, "developer_dir": str(developer),
+                        "xcodebuild_sha256": store.sha256(tool), "runner_root": str(products),
+                        "source_root": str(source_root), "xctestrun": str(xctestrun),
+                        "agent_device_identity": {"version": "0.21.30"},
+                        "source_sha256": ios.source_hashes(source_root),
+                        "build_script_sha256": store.sha256(store.SKILL_DIR / "scripts/build_ios_input.py"),
+                        "account_source_sha256": store.sha256(store.SKILL_DIR / "ios/RunnerTests+AccountLogin.swift"),
+                        "runner_tree_sha256": ios.runner_tree_digest(products)}
+            (ios_root / "build.json").write_text(json.dumps(manifest))
+            settings = {"mount_point": str(root), "volume_uuid": "11111111-2222-3333-4444-555555555555"}
+            with patch.object(helper, "load_settings", return_value=settings), \
+                 patch.object(helper, "verify_storage", return_value=settings), \
+                 patch.object(helper, "verify_output", side_effect=lambda path: path), \
+                 patch.object(helper, "current_digest", return_value="a" * 64), \
+                 patch.object(helper.shutil, "which", return_value=None), \
+                 patch.object(ios, "package_identity", return_value=manifest["agent_device_identity"]), \
+                 patch.object(helper.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                pins = helper.driver_pins(directory).read_text()
+                self.assertIn('static let iosDeveloperDirectory: String? = ' + json.dumps(str(developer)), pins)
+                self.assertIn(manifest["xcodebuild_sha256"], pins)
+                tool.write_text("updated-tool")
+                with self.assertRaises(ValueError):
+                    helper.driver_pins(directory)
+
+    def test_explicit_agent_device_source_works_without_cli_and_bad_value_never_falls_back(self):
+        with tempfile.TemporaryDirectory() as folder:
+            package = Path(folder) / "package"
+            binary = package / "bin/agent-device.mjs"
+            binary.parent.mkdir(parents=True)
+            binary.write_text("synthetic-cli")
+            (package / "package.json").write_text(json.dumps({"name": "agent-device", "version": "0.21.30", "bin": {"agent-device": "bin/agent-device.mjs"}}))
+            with patch.dict(ios.os.environ, {"MOBILE_QA_AGENT_DEVICE_PACKAGE": str(package)}, clear=True), \
+                 patch.object(ios.shutil, "which") as which:
+                self.assertEqual(ios.agent_device_package(), package.resolve())
+                with self.assertRaises(ValueError):
+                    ios.package_identity()
+                which.assert_not_called()
+            with patch.dict(ios.os.environ, {"MOBILE_QA_AGENT_DEVICE_PACKAGE": str(package / "missing")}, clear=True), \
+                 patch.object(ios.shutil, "which") as which:
+                with self.assertRaises(ValueError):
+                    ios.agent_device_package()
+                which.assert_not_called()
+
     def test_helper_build_records_signed_binary_and_release_without_raw_output(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder) / "NativeHelper"
@@ -106,16 +242,22 @@ class PortableBuildTests(unittest.TestCase):
             directory = root / "IOSInput"
             products = directory / "DerivedData/Build/Products"
             runner = directory / "Source/slot/runner/AgentDeviceRunner"
+            developer = root / "Selected Developer"
+            xcodebuild = developer / "usr/bin/xcodebuild"
+            xcodebuild.parent.mkdir(parents=True)
+            xcodebuild.write_text("synthetic-xcodebuild")
+            xcodebuild.chmod(0o755)
             def run(command, **kwargs):
                 if command[0] == "/usr/bin/pgrep":
                     return subprocess.CompletedProcess(command, 1, stdout="")
-                if command[0] == "xcodebuild":
+                if command[0] == "/usr/bin/xcodebuild":
                     for name in ("Runner.app", "Tests.app"):
                         (products / "Debug-iphoneos" / name).mkdir(parents=True)
                     (products / "runner-iphoneos.xctestrun").write_bytes(plistlib.dumps({
                         "Tests": {"TestBundlePath": "fixture", "SystemAttachmentLifetime": "keepAlways"}}))
                 return subprocess.CompletedProcess(command, 0)
             with patch.object(ios, "verify_release"), patch.object(ios, "helper_directory", return_value=root / "NativeHelper"), \
+                 patch.object(ios, "developer_directory", return_value=developer), \
                  patch.object(ios, "verify_output", side_effect=lambda path: path), \
                  patch.object(ios, "build_lock", return_value=nullcontext()), \
                  patch.object(ios, "prepare", return_value=(runner, {"fixture": "b" * 64})), \
@@ -126,6 +268,8 @@ class PortableBuildTests(unittest.TestCase):
             manifest = json.loads((directory / "build.json").read_text())
             self.assertIs(manifest["signed"], True)
             self.assertEqual(manifest["release_digest"], "a" * 64)
+            self.assertEqual(manifest["developer_dir"], str(developer))
+            self.assertEqual(manifest["xcodebuild_sha256"], store.sha256(xcodebuild))
             self.assertEqual(manifest["runner_tree_sha256"], ios.runner_tree_digest(products))
             settings = plistlib.loads(Path(manifest["xctestrun"]).read_bytes())["Tests"]
             self.assertEqual(settings["SystemAttachmentLifetime"], "keepNever")
@@ -190,7 +334,7 @@ class PortableBuildTests(unittest.TestCase):
             root = Path(folder) / "not-created/IOSInput"
             seen = []
             with patch.object(ios, "verify_output", side_effect=lambda path: seen.append(Path(path)) or Path(path)):
-                paths = ios.external_build_paths(root)
+                paths = ios.selected_build_paths(root)
             self.assertFalse(root.exists())
             self.assertIn(root / "build.log", seen)
             self.assertEqual(paths["package_cache"], root.parent / "SwiftPM/Cache")
@@ -221,7 +365,7 @@ class PortableBuildTests(unittest.TestCase):
     def test_build_sources_contain_no_personal_machine_paths(self):
         for filename in ("build_helper.py", "build_ios_input.py", "build_android_input.py", "keychain_store.py"):
             source = (store.SKILL_DIR / "scripts" / filename).read_text()
-            self.assertNotRegex(source, r"/Users/[A-Za-z0-9_.-]+/")
+            self.assertNotRegex(source, r"/(?:Users)/[A-Za-z0-9_.-]+/")
             for value in (".nvm/versions", "AXBUILD"):
                 self.assertNotIn(value, source, filename)
 
@@ -255,6 +399,7 @@ class PortableBuildTests(unittest.TestCase):
                 pins = helper.driver_pins(directory).read_text()
                 self.assertIn("선택 폴더", pins)
                 self.assertIn('static let releaseDigest: String = "' + "a" * 64, pins)
+                self.assertIn('static let iosDeveloperDirectory: String? = nil', pins)
                 ios_root = directory.parent / "IOSInput"
                 ios_root.mkdir()
                 (ios_root / "build.json").write_text(json.dumps({

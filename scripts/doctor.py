@@ -4,6 +4,7 @@
 import argparse
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -12,6 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mobile_qa.release import ROOT, verify_release
 from mobile_qa.storage import load_settings, verify_storage, workspace_directory
+sys.path.insert(0, str(ROOT / 'skills/test-accounts/scripts'))
+from build_ios_input import package_identity
+from build_android_input import android_sdk, java_home
 
 
 def detect_tools():
@@ -24,18 +28,22 @@ def detect_tools():
     for name in ['agent-device', 'swiftc', 'codesign', 'xcodebuild', 'adb', 'java']:
         tools[name] = shutil.which(name)
     tools['agent_device_version'] = None
-    executable = tools['agent-device']
-    if executable:
-        for parent in Path(executable).resolve().parents:
-            metadata = parent / 'package.json'
-            if metadata.is_file():
-                try:
-                    data = json.loads(metadata.read_text())
-                    if data.get('name') == 'agent-device':
-                        tools['agent_device_version'] = data.get('version')
-                        break
-                except (OSError, ValueError, AttributeError):
-                    pass
+    try:
+        source = package_identity()
+        tools['agent_device_source'] = {'verified': True, 'package': source['path'], 'version': source['version']}
+    except (OSError, ValueError) as error:
+        tools['agent_device_source'] = {'verified': False, 'reason': str(error)}
+    try:
+        jdk = java_home()
+        tools.update(jdk_home=str(jdk), java=str(jdk / 'bin/java'), javac=str(jdk / 'bin/javac'))
+    except (OSError, ValueError) as error:
+        tools.update(jdk_home=None, java=None, javac=None, jdk_error=str(error))
+    try:
+        adb = android_sdk() / 'platform-tools/adb'
+        if adb.is_file() and os.access(adb, os.X_OK):
+            tools['adb'] = str(adb.resolve())
+    except (OSError, ValueError):
+        pass
     return tools
 
 
@@ -64,7 +72,7 @@ def main(argv=None):
         result['features'] = {
             'pixel_comparison': bool(tools.get('Pillow') and tools.get('numpy')),
             'device_qa': bool(tools.get('macos') and tools.get('agent-device')),
-            'secure_input_version_compatible': tools.get('agent_device_version') == '0.21.30',
+            'secure_input_version_compatible': tools.get('agent_device_source', {}).get('version') == '0.21.30' and tools.get('agent_device_source', {}).get('verified') is True,
         }
         try:
             settings = verify_storage(load_settings())

@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-from account_catalog import Catalog, download_device, project_key
+from account_catalog import Catalog, bound_device, device_binding, project_key
 from keychain_store import Cancelled, Keychain, KeychainError, LOGIN_CODES, STORAGE_CODES
 from login_plan import build_login_plan, register_profile
 
@@ -47,16 +47,17 @@ def slug(value):
 def context(record):
     environments = ", ".join([record["environment"], *record.get("related_environments", [])])
     projects = ", ".join([record["project"], *record.get("related_projects", [])])
-    device = record.get("download_device")
-    suffix = f" / 다운로드 등록 기기: {device['name']}" if device else ""
+    device = bound_device(record)
+    suffix = f" / 등록 기기: {device['name']}" if device else ""
     return f"{projects} / {environments} / {record['role']} / {record['id']}" + suffix
 
 
 def public_record(record):
+    device = bound_device(record)
     result = {key: value for key, value in record.items() if key != "keychain_ref"}
-    device = result.get("download_device")
     if device:
-        result["download_device"] = {
+        binding_key = "device_binding" if "device_binding" in record else "download_device"
+        result[binding_key] = {
             "platform": device["platform"], "name": device["name"],
             "identifier_saved": device["identifier"] is not None,
         }
@@ -66,18 +67,20 @@ def public_record(record):
 def register(args, catalog):
     project = project_key(args.project)
     environment = slug(args.environment or dialog("테스트 환경을 입력하세요: production / staging / development"))
-    role = slug(args.role or dialog("계정 용도를 입력하세요. 예: student / teacher / admin"))
+    role = slug(args.role or dialog("계정 용도를 입력하세요. 예: tester / member / admin"))
     account_id = slug(args.name or dialog("계정 별칭을 입력하세요. 실제 아이디 대신 구별용 이름을 쓰세요. 예: sample-prod-tester"))
     capabilities = sorted(set(slug(item) for item in args.capability))
     related_projects = sorted({project_key(path) for path in args.related_project} - {project})
     related_environments = sorted({slug(item) for item in args.related_environment} - {environment})
-    device = download_device(json.loads(args.download_device_file.read_text()) if args.download_device_file else None)
+    device_file = args.device_file or args.download_device_file
+    device = device_binding(json.loads(device_file.read_text()) if device_file else None)
+    binding_key = "download_device" if args.download_device_file else "device_binding"
     if any(record["id"] == account_id for record in catalog.list()):
         raise ValueError("같은 별칭이 이미 있습니다. 비밀값 갱신은 update를 사용하세요.")
     record = {
         "id": account_id, "project": project, "environment": environment,
         "related_projects": related_projects, "related_environments": related_environments,
-        "role": role, "capabilities": capabilities, "download_device": device,
+        "role": role, "capabilities": capabilities, binding_key: device,
     }
     store = Keychain()
     with store.registration(account_id, context(record)) as persistent_ref:
@@ -111,7 +114,7 @@ def storage_summary(args, catalog):
 
 
 def matches_device(record, args):
-    registered = record.get("download_device")
+    registered = bound_device(record)
     if registered is None or registered["platform"] != args.platform:
         return False
     if registered["identifier"] is not None:
@@ -128,17 +131,15 @@ def login(args, catalog):
         options["login_profile"] = args.login_profile
     plan = build_login_plan(project, slug(args.environment), args.platform, args.device, **options)
     if args.device_name is not None:
-        download_device({"platform": args.platform, "name": args.device_name, "identifier": args.device})
+        device_binding({"platform": args.platform, "name": args.device_name, "identifier": args.device})
     account_id = slug(args.account) if args.account is not None else None
     capabilities = sorted(set(slug(item) for item in args.capability))
     found = catalog.find(
         project, args.environment, args.role, capabilities,
         device=args.device_name or args.device, platform=args.platform,
     )
-    candidates = found["candidates"]
-    matching = [record for record in candidates if matches_device(record, args)]
-    if "download" in capabilities or (len(candidates) > 1 and matching):
-        candidates = matching
+    candidates = [record for record in found["candidates"]
+                  if bound_device(record) is None or matches_device(record, args)]
     if account_id is not None:
         candidates = [record for record in candidates if record["id"] == account_id]
     if len(candidates) != 1:
@@ -178,14 +179,16 @@ def parser():
     add.add_argument("--capability", action="append", default=[])
     add.add_argument("--related-project", type=Path, action="append", default=[])
     add.add_argument("--related-environment", action="append", default=[])
-    add.add_argument("--download-device-file", type=Path)
+    binding = add.add_mutually_exclusive_group()
+    binding.add_argument("--device-file", type=Path, help="계정을 귀속할 기기 메타데이터 JSON")
+    binding.add_argument("--download-device-file", type=Path, help="기존 기기 귀속 필드로 등록하는 호환 옵션")
     find = sub.add_parser("find", help="프로젝트·환경·용도·기능으로 계정 선택")
     find.add_argument("--project", type=Path, default=Path.cwd())
     find.add_argument("--environment", required=True)
     find.add_argument("--role", required=True)
     find.add_argument("--capability", action="append", default=[])
-    find.add_argument("--device", help="다운로드 대상 기기의 정확한 이름 또는 식별자")
-    find.add_argument("--platform", choices=["ios", "android"], help="다운로드를 실행할 실제 기기의 운영체제")
+    find.add_argument("--device", help="계정 귀속을 확인할 기기의 정확한 이름 또는 식별자")
+    find.add_argument("--platform", choices=["ios", "android"], help="계정 귀속을 확인할 기기의 운영체제")
     listing = sub.add_parser("list", help="등록된 비밀 아닌 계정 정보 조회")
     listing.add_argument("--project", type=Path)
     edit = sub.add_parser("update", help="기존 계정의 아이디·비밀번호만 보안 입력으로 갱신")
@@ -203,7 +206,7 @@ def parser():
     sign_in.add_argument("--capability", action="append", default=[])
     sign_in.add_argument("--platform", choices=["ios", "android"], required=True)
     sign_in.add_argument("--device", required=True, help="현재 실기기의 정확한 물리 식별자")
-    sign_in.add_argument("--device-name", help="저장된 다운로드 등록 기기의 정확한 이름")
+    sign_in.add_argument("--device-name", help="저장된 계정 귀속 기기의 정확한 이름")
     sign_in.add_argument("--account", help="조회 범위 안에서 사용할 계정 별칭")
     sign_in.add_argument("--app-id", help="신뢰할 수 있는 호출자가 확인한 허용 앱 식별자")
     sign_in.add_argument("--login-profile", required=True, help="현재 프로젝트에 명시적으로 등록한 프로필 이름")

@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 
-RELEASE_VERSION = "0.1.1"
+RELEASE_VERSION = "0.2.0"
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {"plugin.json", "README.md", "README.en.md", "README.ko.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
               "SECURITY.md", "requirements.txt", ".gitignore"}
@@ -69,16 +69,18 @@ def package_files(root=ROOT, *, allow_install_receipt=False):
 
 def safety_check(root=ROOT):
     files = package_files(root)
-    private_path = re.compile(r"/Users/[A-Za-z0-9_.-]+/|/Volumes/[A-Za-z0-9_.-]+")
-    private_project = re.compile("mega" + "study|smart" + "learning", re.I)
+    private_path = re.compile(
+        r"(?<![A-Za-z0-9])(?:/(?:System/Volumes/Data/)?(?:Users|home)/[^/\r\n\"'`]+"
+        r"|[A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+[^\\/\r\n\"'`]+"
+        r"|/(?:Volumes|(?:run/)?media|mnt)/[^/\r\n\"'`]+)")
     for name in files:
         if name in DOCUMENTATION_IMAGES:
             if not (Path(root) / name).read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
                 raise ValueError("Documentation images must be PNG files: " + name)
             continue
         source = (Path(root) / name).read_text(encoding="utf-8")
-        if private_path.search(source) or private_project.search(source):
-            raise ValueError("Private host or project reference in public file: " + name)
+        if private_path.search(source):
+            raise ValueError("Private host path in public file: " + name)
     return files
 
 

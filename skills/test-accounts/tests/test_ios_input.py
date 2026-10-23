@@ -24,6 +24,49 @@ PLAN = {"app_id": "org.example.fixture", "username_selector": {"identifier": "us
 
 
 class IOSInputBuildTests(unittest.TestCase):
+    @unittest.skipUnless(NATIVE, "Opt in to isolated Swift tests with MOBILE_QA_NATIVE_TESTS=1")
+    def test_native_xcode_children_use_only_verified_pinned_developer_directory(self):
+        source = (ios.SKILL_DIR / "native/SecureLogin.swift").read_text()
+        environment = "    static func childEnvironment(" + source.split("    static func childEnvironment(", 1)[1].split("    var isRunning:", 1)[0]
+        self._check_swift(r'''
+import Darwin
+struct SecureLoginFailure: Error { let code: String }
+private enum DriverPins {
+  nonisolated(unsafe) static var iosDeveloperDirectory: String?
+  nonisolated(unsafe) static var iosXcodeBuildSHA256: String?
+}
+private enum LoginChild {
+''' + environment + r'''
+}
+let temporary = "__FIXTURE_HOME__"
+let developer = temporary + "/Chosen Developer"
+let tool = developer + "/usr/bin/xcodebuild"
+try! FileManager.default.createDirectory(atPath: developer + "/usr/bin", withIntermediateDirectories: true)
+let contents = Data("synthetic-xcodebuild".utf8)
+try! contents.write(to: URL(fileURLWithPath: tool))
+try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool)
+setenv("DEVELOPER_DIR", "/ignored-selection", 1)
+setenv("JAVA_HOME", "/ignored-jdk", 1)
+let plain = try! LoginChild.childEnvironment(path: "/usr/sbin/diskutil", temporaryDirectory: temporary)
+assert(Set(plain.keys) == ["PATH", "HOME", "TMPDIR"])
+do {
+  _ = try LoginChild.childEnvironment(path: "/usr/bin/xcrun", temporaryDirectory: temporary)
+  assertionFailure("unprepared iOS selection accepted")
+} catch {}
+DriverPins.iosDeveloperDirectory = developer
+DriverPins.iosXcodeBuildSHA256 = SHA256.hash(data: contents).map { String(format: "%02x", $0) }.joined()
+for path in ["/usr/bin/xcrun", "/usr/bin/xcodebuild"] {
+  let values = try! LoginChild.childEnvironment(path: path, temporaryDirectory: temporary)
+  assert(values["DEVELOPER_DIR"] == developer)
+  assert(Set(values.keys) == ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"])
+}
+try! Data("changed-xcodebuild".utf8).write(to: URL(fileURLWithPath: tool))
+do {
+  _ = try LoginChild.childEnvironment(path: "/usr/bin/xcodebuild", temporaryDirectory: temporary)
+  assertionFailure("changed Xcode tool accepted")
+} catch {}
+''')
+
     def test_source_lock_rejects_same_version_patch_added_deleted_and_symlink_files(self):
         with tempfile.TemporaryDirectory() as folder:
             package = Path(folder) / "package"
@@ -44,6 +87,7 @@ class IOSInputBuildTests(unittest.TestCase):
                 runner.write_text("same-version-modified-source")
                 with self.assertRaises(ValueError):
                     ios.package_identity(package)
+
                 runner.write_text("official-source")
                 extra = runner.parent / "Extra.swift"
                 extra.write_text("unreviewed-source")
@@ -61,8 +105,8 @@ class IOSInputBuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder) / "not-created/IOSInput"
             with patch.object(ios, "verify_output", side_effect=lambda path: path) as verify:
-                first = ios.external_build_paths(directory)
-                self.assertEqual(first, ios.external_build_paths(directory))
+                first = ios.selected_build_paths(directory)
+                self.assertEqual(first, ios.selected_build_paths(directory))
             self.assertFalse(directory.exists())
             self.assertEqual(first["module_cache"], directory / "DerivedData/ModuleCache.noindex")
             self.assertEqual(first["package_cache"], directory.parent / "SwiftPM/Cache")
@@ -73,7 +117,7 @@ class IOSInputBuildTests(unittest.TestCase):
             directory = Path(folder) / "not-created/IOSInput"
             with patch.object(ios, "verify_output", side_effect=ValueError("unmounted")):
                 with self.assertRaises(ValueError):
-                    ios.external_build_paths(directory)
+                    ios.selected_build_paths(directory)
             self.assertFalse(directory.exists())
 
     def test_build_passes_selected_external_cache_settings_to_xcode_and_children(self):
@@ -81,15 +125,20 @@ class IOSInputBuildTests(unittest.TestCase):
             pass
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder) / "IOSInput"
+            developer = Path(folder) / "Selected Developer"
+            tool = developer / "usr/bin/xcodebuild"
+            tool.parent.mkdir(parents=True)
+            tool.write_text("synthetic-xcodebuild")
             captured = {}
             def run(command, **kwargs):
                 if command[0] == "/usr/bin/pgrep":
                     return subprocess.CompletedProcess(command, 1, stdout="")
-                if command[0] == "xcodebuild":
+                if command[0] == "/usr/bin/xcodebuild":
                     captured.update(command=command, environment=kwargs["env"], kwargs=kwargs)
                     raise Captured()
                 self.fail("Unexpected external process in synthetic build")
             with patch.object(ios, "helper_directory", return_value=directory.parent / "NativeHelper"), \
+                 patch.object(ios, "developer_directory", return_value=developer), \
                  patch.object(ios, "verify_release"), patch.object(ios, "verify_output", side_effect=lambda path: path), \
                  patch.object(ios, "current_digest", return_value=DIGEST), \
                  patch.object(ios, "package_identity", return_value={"version": "0.21.30"}), \
@@ -99,6 +148,7 @@ class IOSInputBuildTests(unittest.TestCase):
                 with self.assertRaises(Captured):
                     ios.build(team_id="ABCDEFGHIJ")
             command, environment = captured["command"], captured["environment"]
+            self.assertEqual(environment["DEVELOPER_DIR"], str(developer))
             for option, expected in [("-derivedDataPath", directory / "DerivedData"),
                                      ("-clonedSourcePackagesDirPath", directory / "DerivedData/SourcePackages"),
                                      ("-packageCachePath", directory.parent / "SwiftPM/Cache")]:
@@ -484,7 +534,7 @@ assert(runner.preflight(request).status == "ready")
     def _check_swift(self, checks):
         directory = ios.helper_directory().parent / "SwiftChecks"
         ios.verify_output(directory)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         source = (ios.SKILL_DIR / "ios/RunnerTests+AccountLogin.swift").read_text()
         source = source.split("extension RunnerTests {", 1)[0].replace("import XCTest\n", "")
         source = source.replace("__MOBILE_QA_RELEASE_DIGEST__", DIGEST) + checks

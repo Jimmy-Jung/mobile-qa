@@ -11,9 +11,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import test_accounts as cli
+from account_catalog import Catalog
 
 REF = "b3BhcXVlLXJlZmVyZW5jZQ=="
 RECORD = {"id": "sample-student", "project": "example.test/team/app", "environment": "staging", "role": "student", "capabilities": [], "keychain_ref": REF, "related_projects": [], "related_environments": [], "download_device": None}
+NEW_RECORD = {**{key: value for key, value in RECORD.items() if key != "download_device"}, "device_binding": None}
 
 
 class AccountCLITests(unittest.TestCase):
@@ -46,18 +48,57 @@ class AccountCLITests(unittest.TestCase):
     def register_args(self):
         return ["register", "--name", "sample-student", "--environment", "staging", "--role", "student"]
 
+    def test_canonical_device_file_registers_and_redacts_generic_binding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "device.json"
+            device = {"platform": "ios", "name": "Synthetic phone", "identifier": "private-device-sentinel"}
+            path.write_text(json.dumps(device))
+            code, result = self.run_cli(self.register_args() + ["--device-file", str(path), "--capability", "arbitrary-feature"])
+        self.assertEqual(code, 0)
+        saved = self.catalog.add.call_args.args[0]
+        self.assertEqual(saved["device_binding"], device)
+        self.assertEqual(saved["capabilities"], ["arbitrary-feature"])
+        self.assertNotIn("download_device", saved)
+        self.assertEqual(result["account"]["device_binding"], {"platform": "ios", "name": "Synthetic phone", "identifier_saved": True})
+        self.assertNotIn("download_device", result["account"])
+
+    def test_canonical_and_legacy_device_options_are_mutually_exclusive(self):
+        code, result = self.run_cli(self.register_args() + ["--device-file", "/first.json", "--download-device-file", "/second.json"])
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[0].assert_not_called()
+        self.mocks[1].assert_not_called()
+
+    def test_malformed_duplicate_binding_fields_do_not_leak_identifiers(self):
+        device = {"platform": "ios", "name": "Synthetic phone", "identifier": "private-device-sentinel"}
+        self.catalog.list.return_value = [{**RECORD, "download_device": device, "device_binding": device}]
+        code, result = self.run_cli(["list"])
+        self.assertEqual((code, result["status"]), (1, "error"))
+
     def test_registration_uses_native_dialog_and_stores_only_reference(self):
         code, result = self.run_cli(self.register_args())
         self.assertEqual((code, result["status"]), (0, "registered"))
         self.keychain.registration.assert_called_once_with("sample-student", cli.context(RECORD))
-        self.catalog.add.assert_called_once_with(RECORD)
+        self.catalog.add.assert_called_once_with(NEW_RECORD)
         self.mocks[3].assert_not_called()
 
     def test_missing_metadata_prompts_only_for_metadata(self):
         code, _ = self.run_cli(["register"])
         self.assertEqual(code, 0)
         self.assertEqual(self.mocks[3].call_count, 3)
-        self.catalog.add.assert_called_once_with(RECORD)
+        self.assertIn("tester / member / admin", self.mocks[3].call_args_list[1].args[0])
+        self.catalog.add.assert_called_once_with(NEW_RECORD)
+
+    def test_canonical_binding_identifier_is_redacted_for_list_and_find(self):
+        device = {"platform": "ios", "name": "Synthetic phone", "identifier": "private-device-sentinel"}
+        record = {**NEW_RECORD, "device_binding": device}
+        self.catalog.list.return_value = [record]
+        self.catalog.find.return_value = {"status": "selected", "candidates": [record]}
+        for args, key in [(["list"], "accounts"), (["find", "--environment", "staging", "--role", "student", "--device", "Synthetic phone", "--platform", "ios"], "candidates")]:
+            with self.subTest(command=args[0]):
+                code, result = self.run_cli(args)
+                self.assertEqual(code, 0)
+                self.assertEqual(result[key][0]["device_binding"], {"platform": "ios", "name": "Synthetic phone", "identifier_saved": True})
+                self.assertNotIn("download_device", result[key][0])
 
     def test_find_selects_metadata_without_native_access(self):
         self.catalog.find.return_value = {"status": "selected", "candidates": [RECORD]}
@@ -208,6 +249,59 @@ class AccountCLITests(unittest.TestCase):
         self.mocks[2].return_value = "example.test/team/ios-app"
         return {**RECORD, "id": identifier, "project": self.mocks[2].return_value, "environment": "production", "role": "learner", **changes}
 
+    def test_unbound_download_is_a_normal_login_candidate(self):
+        free = self.login_record("free")
+        self.catalog.find.return_value = {"status": "selected", "candidates": [free]}
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        code, result = self.run_cli(self.login_args("--capability", "download"))
+        self.assertEqual((code, result["account"]), (0, "free"))
+        self.keychain.login.assert_called_once()
+
+    def test_mixed_binding_login_requires_explicit_alias_instead_of_priority(self):
+        device = {"platform": "ios", "name": "Synthetic phone", "identifier": "00008101-0012345678901234"}
+        free = self.login_record("free")
+        bound = {**{key: value for key, value in self.login_record("bound").items() if key != "download_device"}, "device_binding": device}
+        self.catalog.find.return_value = {"status": "ambiguous", "candidates": [free, bound]}
+        code, result = self.run_cli(self.login_args())
+        self.assertEqual((code, result), (1, {"status": "ambiguous"}))
+        self.mocks[1].assert_not_called()
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        for name in ["free", "bound"]:
+            code, result = self.run_cli(self.login_args("--account", name))
+            self.assertEqual((code, result["account"]), (0, name))
+            self.assertEqual(self.keychain.login.call_args.args[0]["id"], name)
+
+    def test_real_catalog_and_login_share_binding_rules_for_all_capability_labels(self):
+        device = {"platform": "ios", "name": "Synthetic phone", "identifier": "00008101-0012345678901234"}
+        capabilities = ["arbitrary-feature", "download"]
+        free = self.login_record("free", capabilities=capabilities)
+        bound = {**{key: value for key, value in self.login_record("bound", capabilities=capabilities).items() if key != "download_device"}, "device_binding": device}
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        with tempfile.TemporaryDirectory() as folder:
+            catalog = Catalog(Path(folder) / "private" / "accounts.json")
+            catalog.add(free)
+            catalog.add(bound)
+            before = catalog.path.read_bytes()
+            self.mocks[0].return_value = catalog
+            for capability in capabilities:
+                with self.subTest(capability=capability):
+                    self.keychain.login.reset_mock()
+                    code, result = self.run_cli(self.login_args("--capability", capability))
+                    self.assertEqual((code, result), (1, {"status": "ambiguous"}))
+                    self.keychain.login.assert_not_called()
+                    for name in ["free", "bound"]:
+                        code, result = self.run_cli(self.login_args("--capability", capability, "--account", name))
+                        self.assertEqual((code, result["account"]), (0, name))
+            self.assertEqual(catalog.path.read_bytes(), before)
+
+    def test_generic_binding_never_accepts_only_a_name_when_identifier_conflicts(self):
+        device = {"platform": "ios", "name": "Synthetic phone", "identifier": "different-physical-device"}
+        bound = {**{key: value for key, value in self.login_record().items() if key != "download_device"}, "device_binding": device}
+        self.catalog.find.return_value = {"status": "selected", "candidates": [bound]}
+        code, result = self.run_cli(self.login_args("--capability", "arbitrary-feature", "--device-name", "Synthetic phone"))
+        self.assertEqual((code, result), (1, {"status": "not_found"}))
+        self.mocks[1].assert_not_called()
+
     def test_login_scopes_account_before_accessing_keychain(self):
         record = self.login_record()
         self.catalog.find.return_value = {"status": "selected", "candidates": [record]}
@@ -237,7 +331,7 @@ class AccountCLITests(unittest.TestCase):
         self.assertEqual((code, result), (1, {"status": "already_authenticated", "account": "second", "environment_verified": False}))
         self.assertEqual(self.keychain.login.call_args.args[0]["id"], "second")
 
-    def test_login_prefers_account_registered_for_exact_physical_device(self):
+    def test_login_excludes_bindings_for_a_different_physical_device(self):
         device = {"platform": "ios", "name": "Test phone", "identifier": "00008101-0012345678901234"}
         records = [self.login_record("other", download_device={**device, "identifier": "other-physical-device"}), self.login_record("matching", download_device=device)]
         self.catalog.find.return_value = {"status": "ambiguous", "candidates": records}

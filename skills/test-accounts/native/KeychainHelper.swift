@@ -140,7 +140,7 @@ struct KeychainHelper {
         app.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "테스트 계정 보관"
-        alert.informativeText = "\(context)\n아이디와 비밀번호를 이 Mac의 로컬 credentials.json에 평문으로 저장합니다. 폴더는 0700·파일은 0600으로 제한하며, 같은 macOS 사용자 권한의 프로그램은 읽을 수 있습니다."
+        alert.informativeText = "\(context)\n아이디와 비밀번호를 사용자 로컬 credentials.json에 평문으로 저장합니다. 폴더는 0700·파일은 0600으로 제한하며, 같은 macOS 사용자 권한의 프로그램은 읽을 수 있습니다."
         alert.addButton(withTitle: "저장")
         alert.addButton(withTitle: "취소")
 

@@ -15,17 +15,17 @@ metadata:
 
 1. 이미 로그인된 정상 세션이면 재사용한다. 계정이 필요한 때 현재 프로젝트와 요청·신뢰할 수 있는 설정에서 확인한 **환경·용도·필요 기능**으로 조회한다. 화면 문구나 파일명으로 운영 환경을 추측하지 않는다.
 2. 아래 `scripts/test_accounts.py`의 실제 절대 경로를 사용한다. `--project`는 대상 저장소 경로다. 같은 원격 저장소의 checkout·worktree는 같은 프로젝트 키로 조회하며, 원격이 없으면 물리 경로를 사용한다. 플랫폼별 저장소·여러 환경이 같은 계정을 쓰는 것은 사용자가 확인한 연관 프로젝트·환경으로 명시해 연결하며 계정 비밀값은 한 번만 보관한다.
-3. `selected` 한 건만 해당 조건의 계정 후보로 사용한다. `not_found`면 등록을 안내하고, `ambiguous`면 후보 별칭·기능을 제시해 필요한 차이를 확인한다. 다운로드 조회는 `--platform`에 실기기의 `ios` 또는 `android`, `--device`에 현재 대상의 정확한 이름 또는 식별자를 전달한다. `needs_device`면 이미 확보한 대상 정보를 사용해 다시 조회한다. Flutter도 실행 기기의 운영체제를 사용한다. 첫 후보·다른 환경·다른 등록 기기·권한이 더 큰 계정으로 자동 대체하지 않는다.
+3. `selected` 한 건만 해당 조건의 계정 후보로 사용한다. `not_found`면 등록을 안내하고, `ambiguous`면 후보 별칭·기능을 제시해 필요한 차이를 확인한다. 기기 귀속 계정 조회에는 `--platform`에 실기기의 `ios` 또는 `android`, `--device`에 현재 대상의 정확한 이름 또는 식별자를 전달한다. `needs_device`면 이미 확보한 대상 정보를 사용해 다시 조회한다. Flutter도 실행 기기의 운영체제를 사용한다. 첫 후보·다른 환경·다른 등록 기기·권한이 더 큰 계정으로 자동 대체하지 않는다.
 4. 조회 결과의 `id`는 계정 별칭이다. 내부 저장 참조는 조회 출력에서 제외한다. 실제 아이디·비밀번호를 읽어 대화·도구 인자·위임 문서에 복사하지 않는다. 계정의 기능 표시는 시험 조작의 승인이나 실제 권한 확인을 대신하지 않는다.
 
 ```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment staging --role student
-python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment production --role student --capability download --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_NAME"
+python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment staging --role tester
+python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment production --role tester --capability smoke --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_NAME"
 ```
 
-환경·용도는 예시이며 실제로 확인한 값으로 바꾼다. `download` 등 필요한 기능은 등록 시 명시한 값으로만 매칭한다. 기능 미등록을 기능 보유로 해석하지 않는다.
+환경·용도는 예시이며 실제로 확인한 값으로 바꾼다. 필요한 기능은 등록 시 명시한 라벨로만 매칭하며, 기능명 자체에 추가 계정 정책을 부여하지 않는다. 기능 미등록을 기능 보유로 해석하지 않는다.
 
-`download_device`는 사용자가 알려준 등록 기기 조건이다. 연결 기기에서 얻은 식별자는 해당 실기기를 구별하는 값이며 서버·SDK의 등록 ID와 같다고 추정하지 않는다. 운영체제와 이름 또는 식별자가 모두 일치하는 계정만 다운로드 후보로 고른다. 저장된 기기 조건은 현재 서버 등록의 실행 증거를 대신하지 않으며, 새 기기 등록·기존 등록 해제는 사용자 승인 없이 수행하지 않는다.
+`device_binding`은 사용자가 명시한 계정의 기기 귀속 조건이다. 기존 `download_device`도 같은 제한으로 읽지만 자동 변환·이동하지 않는다. 연결 기기에서 얻은 식별자는 해당 실기기를 구별하는 값이며 서버·SDK의 등록 ID와 같다고 추정하지 않는다. 귀속 계정은 운영체제와 이름 또는 식별자가 일치해야 후보로 고른다. 귀속 조건이 없는 계정은 기능명과 무관하게 일반 후보로 다룬다. 귀속·비귀속 계정이 함께 맞아도 자동 우선하지 않으며, 후보가 여럿이면 별칭을 명시해 선택한다. 로그인은 물리 식별자가 등록된 계정에 이름 일치만으로 접근하지 않는다. 저장된 기기 조건은 현재 서버 등록의 실행 증거를 대신하지 않으며, 새 기기 등록·기존 등록 해제는 사용자 승인 없이 수행하지 않는다.
 
 ## 계정 등록과 갱신
 
@@ -33,16 +33,16 @@ python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment prod
 
 ```bash
 python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR"
-python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-staging-student --environment staging --role student --capability playback
+python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-staging-tester --environment staging --role tester --capability smoke
 ```
 
-같은 계정을 공유하는 저장소는 `--related-project "$OTHER_PROJECT_DIR"`, 환경은 `--related-environment development`를 반복해 추가한다. 다운로드 기기 조건은 로컬 비공개 JSON 파일을 `--download-device-file "$PRIVATE_DEVICE_FILE"`로 전달한다. 파일은 `platform`(`ios` 또는 `android`), `name`, `identifier`(모르면 `null`) 세 필드만 가지며 비밀값은 포함하지 않는다. 플랫폼 지원은 `ios`·`android`·`flutter` 같은 기능 라벨로 함께 명시할 수 있다. 조회 응답은 내부 저장 참조와 기기 고유 식별자를 제외한다.
+같은 계정을 공유하는 저장소는 `--related-project "$OTHER_PROJECT_DIR"`, 환경은 `--related-environment development`를 반복해 추가한다. 기기 귀속 조건은 로컬 비공개 JSON 파일을 `--device-file "$PRIVATE_DEVICE_FILE"`로 전달한다. 기존 `--download-device-file`도 호환 입력으로 지원하며 두 옵션을 함께 쓰지 않는다. 파일은 `platform`(`ios` 또는 `android`), `name`, `identifier`(모르면 `null`) 세 필드만 가지며 비밀값은 포함하지 않는다. 플랫폼 지원은 `ios`·`android`·`flutter` 같은 기능 라벨로 함께 명시할 수 있다. 조회 응답은 내부 저장 참조와 기기 고유 식별자를 제외한다.
 
 등록은 기존 서버 계정을 저장하는 작업이다. 서버 계정을 만들거나 비밀번호를 바꾸지 않는다. 같은 별칭을 덮어쓰지 않으며, 저장한 비밀값을 갱신할 때는 사용자가 지정한 별칭으로 `update`를 사용한다. 용도·환경을 바꾸려면 새 별칭으로 등록한다.
 
 ```bash
 python3 "$TEST_ACCOUNTS_SCRIPT" list --project "$PROJECT_DIR"
-python3 "$TEST_ACCOUNTS_SCRIPT" update sample-staging-student
+python3 "$TEST_ACCOUNTS_SCRIPT" update sample-staging-tester
 ```
 
 ## 보관과 로그인 경계
@@ -94,7 +94,7 @@ python3 -B "$TEST_ACCOUNTS_SCRIPT" register-profile --project "$PROJECT_DIR" --f
 `login`에는 등록한 이름을 반드시 전달한다. 준비된 환경 표시가 실제로 선택돼 있어야 하며 도구가 환경을 바꾸거나 로그인 제출을 반복하지 않는다. 환경을 확인할 수 없는 화면은 `준비 필요`다. 프로필의 앱 ID와 설치 앱을 대조하고 입력 필드 유일성·secure 속성·현재 환경을 확인한 뒤 한 번만 제출한다. 로그인 화면의 소멸과 성공 화면을 관찰하며 정상 인증 세션은 보존한다.
 
 ```bash
-python3 -B "$TEST_ACCOUNTS_SCRIPT" login --project "$PROJECT_DIR" --environment staging --role student --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_ID" --login-profile example-staging
+python3 -B "$TEST_ACCOUNTS_SCRIPT" login --project "$PROJECT_DIR" --environment staging --role tester --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_ID" --login-profile example-staging
 ```
 
 지원하지 않는 화면·문자는 원문을 꺼내 일반 입력으로 우회하지 않고 해당 항목을 `준비 필요`로 남긴다. 실제 계정과 프로젝트의 관계를 확인하지 못하거나 환경·용도가 다르면 입력하지 않는다.
@@ -117,6 +117,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B "$SKILL_DIR/scripts/build_helper.py"
 
 iOS 입력은 호환 목록의 `agent-device` 0.21.30 runner 소스를 선택한 저장소의 작업 폴더에 복사해 전용 경로만 추가한다. 전역 설치본을 수정하지 않는다. 미지원 버전을 자동 패치하거나 최신 버전으로 교체하지 않는다. helper·runner·프로필·release가 섞이면 실행 전에 중단한다. 기기용 빌드에는 사용자의 유효한 서명이 필요하다.
 
-로그·캐시·원본 화면·빌드 결과는 선택한 저장소 아래의 고정 작업 폴더에 두고 매 작업에서 실제 볼륨 신원을 확인한다. 저장소가 없거나 쓰기 불가이면 선택 폴더 밖의 다른 경로로 자동 대체하지 않는다. 프로젝트·호스트에 외장 빌드 저장소 등 추가 정책이 있으면 함께 따른다. 다른 작업의 기기·runner를 점유하지 않고 자신이 시작한 프로세스만 정리한다.
+로그·캐시·원본 화면·빌드 결과는 선택한 저장소 아래의 고정 작업 폴더에 두고 매 작업에서 실제 볼륨 신원을 확인한다. 저장소가 없거나 쓰기 불가이면 선택 폴더 밖의 다른 경로로 자동 대체하지 않는다. 프로젝트·호스트의 추가 저장 정책도 함께 따른다. 다른 작업의 기기·runner를 점유하지 않고 자신이 시작한 프로세스만 정리한다.
 
 검증에는 실제 등록 계정 대신 격리된 합성 자료를 사용한다. `TMPDIR`를 선택한 저장 폴더 안에서 추가 저장 정책을 충족하는 검증된 작업 폴더로 지정하고 `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s "$SKILL_DIR/tests"`를 실행한다. 계정 파일·캡처·기기 식별자·프로젝트 정책을 공개 저장소나 테스트 fixture로 복사하지 않는다.

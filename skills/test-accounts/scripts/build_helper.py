@@ -36,11 +36,18 @@ def driver_pins(directory):
         raise ValueError("iOS 입력 도구 기록이 올바르지 않습니다.")
     if ios:
         from build_ios_input import package_identity, runner_tree_digest, source_hashes
+        if not isinstance(ios.get("developer_dir"), str) or not ios["developer_dir"]:
+            raise ValueError("선택한 Xcode 기록이 있는 iOS 입력 도구를 다시 빌드하세요.")
         ios_root = (directory.parent / "IOSInput").resolve()
         runner_root = verify_output(Path(ios["runner_root"]))
         source_root = verify_output(Path(ios["source_root"]))
         xctestrun = verify_output(Path(ios["xctestrun"]))
+        developer = Path(ios["developer_dir"])
+        xcodebuild = developer / "usr/bin/xcodebuild"
         if (ios.get("signed") is not True or ios.get("release_digest") != current_digest()
+                or not developer.is_absolute() or developer.resolve() != developer
+                or not xcodebuild.is_file() or not os.access(xcodebuild, os.X_OK)
+                or sha256(xcodebuild) != ios.get("xcodebuild_sha256")
                 or not runner_root.is_relative_to(ios_root) or not source_root.is_relative_to(ios_root)
                 or not xctestrun.is_relative_to(runner_root)
                 or ios.get("agent_device_identity") != package_identity()
@@ -62,6 +69,8 @@ def driver_pins(directory):
         "androidJARPath": str(android), "androidJARSHA256": sha256(android) if android.exists() else "",
         "iosXCTestRunPath": ios.get("xctestrun"), "iosRunnerRoot": ios.get("runner_root"),
         "iosRunnerTreeSHA256": ios.get("runner_tree_sha256"),
+        "iosDeveloperDirectory": ios.get("developer_dir"),
+        "iosXcodeBuildSHA256": ios.get("xcodebuild_sha256"),
     }
     lines = ["// Generated local driver identities; contains no credentials.", "enum DriverPins {"]
     for name, value in values.items():
