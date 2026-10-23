@@ -4,7 +4,7 @@ description: 프로젝트별 정책·인증·시나리오를 확인해 iOS·iPad
 metadata:
   author: JunyoungJung
   created: "2026-09-09"
-  updated: "2026-10-22"
+  updated: "2026-10-23"
 ---
 
 # 실기기 앱 검증
@@ -144,6 +144,15 @@ agent-device open "$APP_ID" --platform android --serial "$DEVICE_SERIAL" --sessi
 ```bash
 agent-device batch --session "$QA_SESSION" --steps-file "$STEPS_FILE" --json
 ```
+
+## 다른 도구를 조합한 후보 검증
+
+[확장 워크플로우 후보](../../docs/workflow-extensions.md)의 WF-01~10을 필요한 시험 조건을 준비하는 후보로 검색할 수 있다. AirDrop·Computer Use·파일 복사·테스트 API·외부 계측은 현재 호스트가 제공하는 기존 도구와 승인된 범위에서 조합한다. 후보 문서만으로 준비 완료·기기 지원·실행 권한·통과를 추정하지 않는다.
+
+- 파일 전송 수락, 기기의 실제 도착 위치, 시스템 picker 선택, 앱 처리와 필요한 저장 결과를 각각 확인한다. 앱 컨테이너 복사로 생략한 picker·권한 경로는 검증 범위에서 제외한다.
+- Codex·Claude 등 여러 호스트를 요청받으면 실제 해당 호스트에서 실행하고 호스트×기기×단계별 근거를 남긴다. 다른 호스트가 만든 준비물을 재사용한 결과와 해당 호스트가 전체 흐름을 수행한 결과를 구분한다. 한 호스트의 실행으로 다른 호스트를 통과시키지 않는다.
+- 한 기기의 입력은 준비 도구·agent-device·다른 runner 사이에서 직렬 인계한다. 공유 Mac 화면의 입력도 담당자를 하나로 유지하며, 결과가 불명확한 전송·변경은 재전송 전에 실제 반영을 확인한다.
+- 새 후보는 프로젝트 QA 전용 저장소에서 `draft`로 관리한다. 실행 파일·사용 계약·현재 호스트/기기의 증거가 갖춰진 범위만 재사용 자산으로 승격하고, 준비가 없는 후보는 사유를 남긴 채 독립 항목을 계속한다.
 
 ## 실패와 자동 복구
 

@@ -230,10 +230,21 @@ do {
         plan = json.dumps(PLAN, ensure_ascii=False)
         source = 'let validData = Data(#"' + plan + '"#.utf8)\n'
         source += 'private let valid = try! JSONDecoder().decode(SecureAccountPlan.self, from: validData)\nassert(valid.valid)\n'
+        typed = dict(PLAN, username_selector={"type": "textField"}, password_selector={"type": "secureTextField"})
+        source += 'private let typedData = Data(#"' + json.dumps(typed) + '"#.utf8)\n'
+        source += 'assert((try! JSONDecoder().decode(SecureAccountPlan.self, from: typedData)).valid)\n'
         invalid = [dict(PLAN, app_id="/wrong"), dict(PLAN, timeout_ms=0), dict(PLAN, success_selectors=[]),
                    dict(PLAN, username_selector={}), dict(PLAN, release_digest="b" * 64),
                    dict(PLAN, submit_selector=PLAN["password_selector"]),
-                   dict(PLAN, username_selector={"identifier": "u", "label": "ambiguous"})]
+                   dict(PLAN, username_selector={"identifier": "u", "label": "ambiguous"}),
+                   dict(typed, username_selector={"type": "secureTextField"}),
+                   dict(typed, password_selector={"type": "textField"}),
+                   dict(typed, submit_selector={"type": "textField"}),
+                   dict(typed, environment_selector={"type": "secureTextField"}),
+                   dict(typed, success_selectors=[{"type": "textField"}]),
+                   dict(typed, username_selector={"type": "textView"}),
+                   dict(typed, username_selector={"type": "textField", "identifier": "u"}),
+                   dict(typed, username_selector={"type": "textField", "index": "0"})]
         for value in invalid:
             source += 'assert(!(try! JSONDecoder().decode(SecureAccountPlan.self, from: Data(#"' + json.dumps(value) + '"#.utf8))).valid)\n'
         source += r'''
@@ -246,10 +257,108 @@ func request(_ changes: [String: Any] = [:], action: String = "preflight") -> Da
 }
 assert(SecureAccountRequest.decode(request()) != nil)
 assert(SecureAccountRequest.decode(request(action: "login")) != nil)
+let typedPlan = try! JSONSerialization.jsonObject(with: typedData) as! [String: Any]
+assert(SecureAccountRequest.decode(request(["plan": typedPlan])) != nil)
+for key in ["submit_selector", "environment_selector"] {
+  let invalidPlan = typedPlan.merging([key: ["type": "textField"]]) { _, new in new }
+  assert(SecureAccountRequest.decode(request(["plan": invalidPlan])) == nil)
+}
+let unknownSelector = typedPlan.merging(["username_selector": ["type": "textField", "index": "0"]]) { _, new in new }
+assert(SecureAccountRequest.decode(request(["plan": unknownSelector])) == nil)
 for action in ["tap", "retry", "shell"] { assert(SecureAccountRequest.decode(request(action: action)) == nil) }
 assert(SecureAccountRequest.decode(request(["extra": "untrusted"])) == nil)
 '''
         self._check_swift(source)
+
+    @unittest.skipUnless(NATIVE, "Opt in to isolated Swift tests with MOBILE_QA_NATIVE_TESTS=1")
+    def test_type_selectors_use_actual_unique_field_queries_without_identifiers(self):
+        runner = (ios.SKILL_DIR / "ios/RunnerTests+AccountLogin.swift").read_text()
+        queries = "  private func secureAccountMatches(" + runner.split("  private func secureAccountMatches(", 1)[1].split("  private func performSecureAccountRequest(", 1)[0]
+        preflight = "    let plan = request.plan" + runner.split("    let plan = request.plan", 1)[1].split('    guard let username = request.username', 1)[0]
+        preflight += '    return .error("INPUT_UNAVAILABLE")\n'
+        typed = dict(PLAN, username_selector={"type": "textField"}, password_selector={"type": "secureTextField"})
+        self._check_swift(r'''
+private final class XCUIElement: NSObject {
+  enum ElementType { case any, textField, textView, secureTextField, button, other }
+  var elementType: ElementType
+  @objc var identifier: String
+  @objc var label: String
+  @objc var placeholderValue: String?
+  var exists = true; var isEnabled = true; var isHittable = true; var isSelected = true
+  init(_ type: ElementType, identifier: String = "", label: String = "", placeholder: String? = nil) {
+    elementType = type; self.identifier = identifier; self.label = label; placeholderValue = placeholder
+  }
+}
+private final class XCUIElementQuery {
+  let allElementsBoundByIndex: [XCUIElement]
+  init(_ elements: [XCUIElement]) { allElementsBoundByIndex = elements }
+  func matching(_ predicate: NSPredicate) -> XCUIElementQuery {
+    XCUIElementQuery(allElementsBoundByIndex.filter { predicate.evaluate(with: $0) })
+  }
+}
+private final class XCUIApplication {
+  enum State { case runningForeground, notRunning }
+  var state = State.runningForeground
+  static var visible: [XCUIElement] = []
+  var elements: [XCUIElement] { get { Self.visible } set { Self.visible = newValue } }
+  init(bundleIdentifier: String = "") {}
+  func descendants(matching type: XCUIElement.ElementType) -> XCUIElementQuery {
+    XCUIElementQuery(elements.filter { type == .any || $0.elementType == type })
+  }
+}
+private final class RunnerTests {
+''' + queries + '\n  func preflight(_ request: SecureAccountRequest) -> SecureAccountResult {\n    let operation = SecureAccountOperation()\n' + preflight + '\n  }\n  func runChecks() {\n    let planData = Data(#"' + json.dumps(typed) + '"#.utf8)\n    let plan = try! JSONDecoder().decode(SecureAccountPlan.self, from: planData)\n' + r'''
+    let app = XCUIApplication()
+    let user = XCUIElement(.textField, label: "Account", placeholder: "Email")
+    let pass = XCUIElement(.secureTextField)
+    let submit = XCUIElement(.button, identifier: "submit")
+    let environment = XCUIElement(.button, label: "Staging")
+    let unrelatedTextView = XCUIElement(.textView)
+    let fields = [user, pass, submit, environment, unrelatedTextView]
+    app.elements = fields
+    assert(secureAccountFields(plan, app: app) != nil)
+    assert(secureAccountEnvironment(plan, app: app) === environment)
+    for selector in [#"{"label":"Account"}"#, #"{"placeholder":"Email"}"#, #"{"type":"textField"}"#] {
+      let selected = try! JSONDecoder().decode(SecureAccountSelector.self, from: Data(selector.utf8))
+      assert(secureAccountMatches(selected, in: app) == [user])
+    }
+    app.elements = fields + [XCUIElement(.textField)]
+    assert(secureAccountFields(plan, app: app) == nil)
+    app.elements = fields + [XCUIElement(.secureTextField)]
+    assert(secureAccountFields(plan, app: app) == nil)
+    app.elements = fields.filter { $0 !== pass }
+    assert(secureAccountFields(plan, app: app) == nil)
+    app.elements = fields; pass.elementType = .textField
+    assert(secureAccountFields(plan, app: app) == nil)
+    pass.elementType = .secureTextField; app.state = .notRunning
+    assert(secureAccountFields(plan, app: app) == nil)
+    app.state = .runningForeground
+    let home = XCUIElement(.other, identifier: "home")
+    let search = XCUIElement(.textField, identifier: "search")
+    app.elements = [search, home]
+    assert(secureAccountHasSuccess(plan, app: app))
+    let requestData = try! JSONSerialization.data(withJSONObject: ["secureAccountProtocol": "agent-test-accounts-v1",
+      "nonce": "11111111-2222-3333-4444-555555555555", "action": "preflight",
+      "plan": try! JSONSerialization.jsonObject(with: planData)])
+    let request = SecureAccountRequest.decode(requestData)!
+    assert(preflight(request).status == "already_authenticated")
+    app.elements = [search, home, submit]
+    assert(!secureAccountHasSuccess(plan, app: app) && preflight(request).status == "error")
+    app.elements = [search]
+    assert(!secureAccountHasSuccess(plan, app: app))
+    app.elements = [search, home, XCUIElement(.other, identifier: "home")]
+    assert(!secureAccountHasSuccess(plan, app: app))
+    let namedData = try! JSONSerialization.data(withJSONObject: (try! JSONSerialization.jsonObject(with: planData) as! [String: Any])
+      .merging(["username_selector": ["identifier": "username"]]) { _, new in new })
+    let named = try! JSONDecoder().decode(SecureAccountPlan.self, from: namedData)
+    app.elements = [search, home]
+    assert(secureAccountHasSuccess(named, app: app))
+    app.elements.append(XCUIElement(.textField, identifier: "username"))
+    assert(!secureAccountHasSuccess(named, app: app))
+  }
+}
+RunnerTests().runChecks()
+''')
 
     @unittest.skipUnless(NATIVE, "Opt in to isolated Swift tests with MOBILE_QA_NATIVE_TESTS=1")
     def test_authenticated_envelope_rejects_tamper_and_cleanup_remains_uncertain(self):
@@ -443,6 +552,20 @@ let metadata = profile.filter { !["schema_version", "name"].contains($0.key) }.m
 private let valid = try! LoginPlan(metadata)
 assert(valid.appID == "org.example.fixture" && valid.environment == "staging")
 assert(valid.metadata["trust"] == nil && valid.metadata["role"] == nil)
+for platform in ["ios", "android"] {
+  let typed = profile.merging(["platform": platform,
+    "username_selector": ["type": "textField"], "password_selector": ["type": "secureTextField"],
+    "submit_selector": ["label": "Sign in"], "success_selectors": [["label": "Home"]]
+  ]) { _, new in new }
+  assert(LoginPlan.validProfile(typed))
+  for changes: [String: Any] in [
+    ["username_selector": ["type": "secureTextField"]], ["password_selector": ["type": "textField"]],
+    ["submit_selector": ["type": "textField"]], ["environment_selector": ["type": "secureTextField"]],
+    ["success_selectors": [["type": "textField"]]], ["username_selector": ["type": "textView"]],
+    ["username_selector": ["type": "textField", "label": "Account"]],
+    ["username_selector": ["type": "textField", "index": "0"]],
+  ] { assert(!LoginPlan.validProfile(typed.merging(changes) { _, new in new })) }
+}
 func rejects(_ changes: [String: Any] = [:]) {
   do { _ = try LoginPlan(metadata.merging(changes) { _, new in new }); assertionFailure("untrusted plan accepted") }
   catch {}

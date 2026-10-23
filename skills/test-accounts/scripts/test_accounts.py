@@ -10,7 +10,7 @@ import sys
 
 from account_catalog import Catalog, bound_device, device_binding, project_key
 from keychain_store import Cancelled, Keychain, KeychainError, LOGIN_CODES, STORAGE_CODES
-from login_plan import build_login_plan, register_profile
+from login_plan import ProfileError, build_login_plan, register_profile
 
 
 class SafeParser(argparse.ArgumentParser):
@@ -142,8 +142,10 @@ def login(args, catalog):
                   if bound_device(record) is None or matches_device(record, args)]
     if account_id is not None:
         candidates = [record for record in candidates if record["id"] == account_id]
-    if len(candidates) != 1:
-        return {"status": "ambiguous" if candidates else "not_found"}
+    if not candidates:
+        return {"status": "not_found"}
+    if len(candidates) > 1:
+        return {"status": "ambiguous", "candidates": [record["id"] for record in candidates]}
 
     record = candidates[0]
     response = Keychain().login(record, plan)
@@ -244,6 +246,9 @@ def main(argv=None):
     except Cancelled:
         print(json.dumps({"status": "cancelled"}))
         return 2
+    except ProfileError as error:
+        print(json.dumps({"status": "error", "code": error.code, "message": str(error)}, ensure_ascii=False))
+        return 1
     except (ValueError, KeychainError, OSError) as error:
         # OS나 외부 처리의 예외 본문에는 입력값이 섞일 수 있어 그대로 반환하지 않는다.
         result = {"status": "error", "message": "계정 작업에 실패했습니다. 입력 형식·목록 권한·로컬 저장소 상태를 확인하세요."}

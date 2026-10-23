@@ -21,6 +21,20 @@ _APP = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)+\Z")
 _PROFILE_KEYS = {"schema_version", "name", "platform", "app_id", "environment", "role", "username_selector", "password_selector", "submit_selector", "environment_selector", "success_selectors", "timeout_ms"}
 
 
+class ProfileError(ValueError):
+    """원문이나 경로를 노출하지 않는 로그인 준비 오류."""
+
+    def __init__(self, code):
+        messages = {
+            "profile_not_found": "등록된 로그인 프로필이 없습니다. 현재 화면을 확인하고 register-profile로 준비하세요.",
+            "profile_untrusted": "로그인 프로필의 비공개 권한·소유권·파일 형식을 확인하세요.",
+            "profile_release_mismatch": "로그인 프로필과 현재 릴리스가 다릅니다. 변경 내용을 검토하고 프로필 재등록·입력 도구 빌드를 진행하세요.",
+            "profile_scope_mismatch": "로그인 프로필의 프로젝트·앱·환경·용도 범위를 확인하세요.",
+        }
+        super().__init__(messages[code])
+        self.code = code
+
+
 def label(value):
     if not isinstance(value, str) or _LABEL.fullmatch(value) is None:
         raise ValueError("프로필 이름·환경·용도는 영문 소문자·숫자·하이픈 1~64자여야 합니다.")
@@ -41,11 +55,17 @@ def validate_profile(profile):
     success = profile["success_selectors"]
     if not isinstance(success, list) or not 1 <= len(success) <= 8:
         raise ValueError("로그인 성공 화면을 명시하세요.")
-    selectors = [profile[key] for key in ["username_selector", "password_selector", "submit_selector", "environment_selector"]] + success
-    for selector in selectors:
+    selector_keys = ["username_selector", "password_selector", "submit_selector", "environment_selector"]
+    selectors = [profile[key] for key in selector_keys] + success
+    for field, selector in zip(selector_keys + ["success_selector"] * len(success), selectors):
         if not isinstance(selector, dict) or len(selector) != 1:
             raise ValueError("화면 요소는 단일 선택 조건이어야 합니다.")
         key, value = next(iter(selector.items()))
+        if key == "type":
+            expected = {"username_selector": "textField", "password_selector": "secureTextField"}.get(field)
+            if expected is None or value != expected:
+                raise ValueError("타입 선택은 아이디 textField·비밀번호 secureTextField에만 사용할 수 있습니다.")
+            continue
         allowed = {"identifier", "label", "placeholder"} if profile["platform"] == "ios" else {"identifier", "label"}
         if (key not in allowed or not isinstance(value, str) or not value
                 or len(value.encode()) > 256 or any(unicodedata.category(char) in {"Cc", "Cf"} for char in value)):
@@ -94,11 +114,13 @@ def _private_directory(folder, *, create=False):
     for path in [folder.parent, folder]:
         try:
             info = path.lstat()
+        except FileNotFoundError as error:
+            raise ProfileError("profile_not_found") from error
         except OSError as error:
-            raise ValueError("등록한 로그인 프로필을 찾을 수 없습니다.") from error
+            raise ProfileError("profile_untrusted") from error
         if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
                 or stat.S_IMODE(info.st_mode) != 0o700 or path != path.resolve()):
-            raise ValueError("프로필 폴더의 소유권·비공개 권한을 확인하세요.")
+            raise ProfileError("profile_untrusted")
 
 
 def register_profile(project_path, source):
@@ -130,15 +152,20 @@ def register_profile(project_path, source):
 def _read_private(path):
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError as error:
+        raise ProfileError("profile_not_found") from error
     except OSError as error:
-        raise ValueError("신뢰 프로필을 안전하게 열 수 없습니다.") from error
+        raise ProfileError("profile_untrusted") from error
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
-            raise ValueError("신뢰 프로필의 소유권·비공개 권한을 확인하세요.")
+            raise ProfileError("profile_untrusted")
         with os.fdopen(descriptor, "rb", closefd=False) as file:
             contents = file.read(32769)
-        return contents, _json(contents)
+        try:
+            return contents, _json(contents)
+        except ValueError as error:
+            raise ProfileError("profile_untrusted") from error
     finally:
         os.close(descriptor)
 
@@ -152,19 +179,24 @@ def build_login_plan(project, environment, platform, device, *, project_path=Non
         raise ValueError("현재 프로젝트·플랫폼·실제 기기 식별자를 명시하세요.")
     qa_key, account_project, folder = profile_context(project_path)
     if project != account_project:
-        raise ValueError("현재 프로젝트의 계정 범위가 일치하지 않습니다.")
+        raise ProfileError("profile_scope_mismatch")
     _private_directory(folder)
     path = folder / (login_profile + ".json")
     contents, wrapper = _read_private(path)
     if (not isinstance(wrapper, dict) or set(wrapper) != {"schema_version", "project_key", "account_project", "release_digest", "profile"}
-            or type(wrapper["schema_version"]) is not int or wrapper["schema_version"] != 1
-            or wrapper["project_key"] != qa_key or wrapper["account_project"] != project
-            or wrapper["release_digest"] != current_digest()):
-        raise ValueError("프로필의 프로젝트·릴리스 신뢰가 일치하지 않습니다. 명시적으로 재등록하세요.")
-    profile = validate_profile(wrapper["profile"])
+            or type(wrapper["schema_version"]) is not int or wrapper["schema_version"] != 1):
+        raise ProfileError("profile_untrusted")
+    if wrapper["project_key"] != qa_key or wrapper["account_project"] != project:
+        raise ProfileError("profile_scope_mismatch")
+    if wrapper["release_digest"] != current_digest():
+        raise ProfileError("profile_release_mismatch")
+    try:
+        profile = validate_profile(wrapper["profile"])
+    except ValueError as error:
+        raise ProfileError("profile_untrusted") from error
     if (profile["name"] != login_profile or profile["environment"] != environment or profile["platform"] != platform
             or profile["role"] != role or (app_id is not None and profile["app_id"] != app_id)):
-        raise ValueError("프로필의 앱·환경·용도 범위가 일치하지 않습니다.")
+        raise ProfileError("profile_scope_mismatch")
     return {**{key: value for key, value in profile.items() if key not in {"schema_version", "name"}},
             "device": device, "project_key": qa_key, "account_project": project,
             "trust": {"path": str(path), "profile_sha256": hashlib.sha256(contents).hexdigest(),

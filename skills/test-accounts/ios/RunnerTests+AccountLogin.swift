@@ -64,17 +64,22 @@ private enum SecureAccountIssueScope {
 }
 
 private struct SecureAccountSelector: Decodable {
-  let identifier: String?
-  let label: String?
-  let placeholder: String?
+  let fields: [String: String]
+  var identifier: String? { fields["identifier"] }
+  var label: String? { fields["label"] }
+  var placeholder: String? { fields["placeholder"] }
+  var type: String? { fields["type"] }
 
-  var fields: [String: String] {
-    ["identifier": identifier, "label": label, "placeholder": placeholder].compactMapValues { $0 }
+  init(from decoder: Decoder) throws {
+    fields = try decoder.singleValueContainer().decode([String: String].self)
   }
 
   var valid: Bool {
     let values = Array(fields.values)
-    return values.count == 1 && values.allSatisfy {
+    return values.count == 1
+      && (type.map { ["textField", "secureTextField"].contains($0) }
+        ?? ["identifier", "label", "placeholder"].contains(fields.keys.first ?? ""))
+      && values.allSatisfy {
       !$0.isEmpty && $0.utf8.count <= 256 && !$0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
   }
@@ -97,6 +102,9 @@ private struct SecureAccountPlan: Decodable {
       && release_digest == secureAccountReleaseDigest
       && release_digest.range(of: #"^[a-f0-9]{64}\z"#, options: .regularExpression) != nil
       && (1...8).contains(success_selectors.count) && selectors.allSatisfy(\.valid)
+      && (username_selector.type == nil || username_selector.type == "textField")
+      && (password_selector.type == nil || password_selector.type == "secureTextField")
+      && ([submit_selector, environment_selector] + success_selectors).allSatisfy { $0.type == nil }
       && (1000...15000).contains(timeout_ms)
       && selectors.enumerated().allSatisfy { index, selector in
         !selectors.prefix(index).contains { $0.fields == selector.fields }
@@ -122,7 +130,7 @@ private struct SecureAccountRequest: Decodable {
     else { return nil }
     let selectors = ["username_selector", "password_selector", "submit_selector", "environment_selector"]
       .compactMap { plan[$0] as? [String: String] } + success
-    guard selectors.allSatisfy({ $0.count == 1 && ["identifier", "label", "placeholder"].contains($0.keys.first ?? "") }),
+    guard selectors.allSatisfy({ $0.count == 1 && ["identifier", "label", "placeholder", "type"].contains($0.keys.first ?? "") }),
       let request = try? JSONDecoder().decode(Self.self, from: data), request.plan.valid
     else { return nil }
     return request
@@ -261,6 +269,11 @@ extension RunnerTests {
   }
 
   private func secureAccountMatches(_ selector: SecureAccountSelector, in app: XCUIApplication) -> [XCUIElement] {
+    if let type = selector.type {
+      guard ["textField", "secureTextField"].contains(type) else { return [] }
+      return app.descendants(matching: type == "textField" ? .textField : .secureTextField)
+        .allElementsBoundByIndex.filter { $0.exists }
+    }
     let key = selector.placeholder != nil ? "placeholderValue" : selector.identifier == nil ? "label" : "identifier"
     let value = selector.placeholder ?? selector.identifier ?? selector.label ?? ""
     return app.descendants(matching: .any).matching(NSPredicate(format: "%K == %@", key, value))
@@ -276,8 +289,8 @@ extension RunnerTests {
 
   private func secureAccountHasSuccess(_ plan: SecureAccountPlan, app: XCUIApplication) -> Bool {
     return app.state == .runningForeground
-      && secureAccountMatches(plan.username_selector, in: app).isEmpty
-      && secureAccountMatches(plan.password_selector, in: app).isEmpty
+      && (plan.username_selector.type != nil || secureAccountMatches(plan.username_selector, in: app).isEmpty)
+      && (plan.password_selector.type != nil || secureAccountMatches(plan.password_selector, in: app).isEmpty)
       && secureAccountMatches(plan.submit_selector, in: app).isEmpty
       && secureAccountHasPostLoginMarker(plan, app: app, requireUnique: true)
   }
@@ -290,7 +303,8 @@ extension RunnerTests {
     let aliasesLoginField = [plan.username_selector, plan.password_selector, plan.submit_selector].contains { selector in
       if let identifier = selector.identifier { return target.identifier == identifier }
       if let label = selector.label { return target.label == label }
-      return target.placeholderValue == selector.placeholder
+      if let placeholder = selector.placeholder { return target.placeholderValue == placeholder }
+      return false
     }
     guard target.elementType == .button, target.isEnabled, target.isHittable, target.isSelected,
       ![fields.0, fields.1, fields.2].contains(where: { $0.isEqual(target) }), !aliasesLoginField

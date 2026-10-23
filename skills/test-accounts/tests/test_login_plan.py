@@ -11,6 +11,22 @@ from test_profiles import PROFILE
 
 
 class LoginPlanTests(unittest.TestCase):
+    def test_unlabelled_login_fields_can_use_exact_semantic_types(self):
+        for platform in ["ios", "android"]:
+            profile = {**PROFILE, "platform": platform,
+                       "username_selector": {"type": "textField"},
+                       "password_selector": {"type": "secureTextField"},
+                       "submit_selector": {"label": "Sign in"},
+                       "success_selectors": [{"label": "Home"}]}
+            with self.subTest(platform=platform):
+                self.assertEqual(validate_profile(profile), profile)
+            for key, value in [("username_selector", "secureTextField"), ("password_selector", "textField"),
+                               ("submit_selector", "textField"), ("environment_selector", "secureTextField")]:
+                with self.subTest(platform=platform, key=key), self.assertRaises(ValueError):
+                    validate_profile({**profile, key: {"type": value}})
+            with self.assertRaises(ValueError):
+                validate_profile({**profile, "success_selectors": [{"type": "textField"}]})
+
     def test_generic_ios_profile_preserves_exact_selectors(self):
         self.assertEqual(validate_profile(copy.deepcopy(PROFILE)), PROFILE)
 

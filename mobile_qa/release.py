@@ -6,19 +6,19 @@ from pathlib import Path
 import re
 
 
-RELEASE_VERSION = "0.2.0"
+RELEASE_VERSION = "0.2.1"
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {"plugin.json", "README.md", "README.en.md", "README.ko.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
               "SECURITY.md", "requirements.txt", ".gitignore"}
 DIRECTORIES = {".claude-plugin", ".agents", ".github", "skills", "agents", "integrations",
-               "mobile_qa", "scripts", "tests", "examples"}
-EXTENSIONS = {".py", ".md", ".json", ".swift", ".java", ".yaml", ".yml", ".toml"}
+               "mobile_qa", "scripts", "tests", "examples", "docs"}
+EXTENSIONS = {".py", ".md", ".json", ".swift", ".java", ".yaml", ".yml", ".toml", ".svg", ".csv"}
 PRIVATE_NAMES = {"credentials.json", "accounts.json", "config.json", "build.json"}
 DOCUMENTATION_IMAGES = {"examples/design-review/" + name for name in (
     "reference.png", "candidate-before.png", "candidate-final.png",
     *[stage + "/" + artifact for stage in ("before", "final") for artifact in (
         "overlay-25.png", "overlay-50.png", "overlay-75.png", "diff.png", "mismatch-mask.png")],
-)}
+)} | {"docs/figures/mqa-chart-01-ai-slop.png"}
 
 
 def _object(pairs):
@@ -39,7 +39,7 @@ def package_files(root=ROOT, *, allow_install_receipt=False):
     files = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if any(part in {".git", "__pycache__"} for part in relative.parts):
+        if any(part in {".git", "__pycache__", ".pytest_cache"} for part in relative.parts):
             continue
         if path.is_symlink():
             raise ValueError("Release packages cannot contain symlinks.")

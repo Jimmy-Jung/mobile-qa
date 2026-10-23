@@ -133,7 +133,8 @@ struct LoginPlan {
         selectors += success
         for (index, selector) in selectors.enumerated() {
             guard selector.count == 1, let (key, value) = selector.first,
-                  (platform == "ios" ? ["identifier", "label", "placeholder"] : ["identifier", "label"]).contains(key),
+                  ((platform == "ios" ? ["identifier", "label", "placeholder"] : ["identifier", "label"]).contains(key)
+                    || (key == "type" && ((index == 0 && value == "textField") || (index == 1 && value == "secureTextField")))),
                   !value.isEmpty, value.utf8.count <= 256,
                   !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
                   !selectors.prefix(index).contains(selector) else { return false }

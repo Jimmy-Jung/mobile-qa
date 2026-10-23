@@ -172,12 +172,15 @@ public final class SecureInput {
     private static final class Selector {
         final String identifier;
         final String label;
+        final String type;
 
         Selector(JSONObject object, String appId) throws Exception {
-            keys(object, "identifier", "label");
+            keys(object, "identifier", "label", "type");
+            if (object.length() != 1) throw new Failure("invalid_plan");
             identifier = object.has("identifier") ? text(object, "identifier", 256) : null;
             label = object.has("label") ? text(object, "label", 256) : null;
-            if ((identifier == null) == (label == null)) throw new Failure("invalid_plan");
+            type = object.has("type") ? text(object, "type", 256) : null;
+            if (type != null && !type.equals("textField") && !type.equals("secureTextField")) throw new Failure("invalid_plan");
             if (identifier != null && (!identifier.startsWith(appId + ":id/")
                     || !identifier.substring(appId.length() + 4).matches("[A-Za-z_][A-Za-z0-9_]*"))) {
                 throw new Failure("invalid_plan");
@@ -186,6 +189,7 @@ public final class SecureInput {
 
         boolean matches(AccessibilityNodeInfo node) {
             if (!node.isVisibleToUser()) return false;
+            if (type != null) return node.isEditable() && node.isPassword() == type.equals("secureTextField");
             if (identifier != null && !identifier.equals(node.getViewIdResourceName())) return false;
             if (label == null) return true;
             // Editable의 text는 이미 들어 있는 계정값일 수 있으므로 label로 사용하지 않는다.
@@ -196,7 +200,8 @@ public final class SecureInput {
 
         boolean same(Selector other) {
             return java.util.Objects.equals(identifier, other.identifier)
-                    && java.util.Objects.equals(label, other.label);
+                    && java.util.Objects.equals(label, other.label)
+                    && java.util.Objects.equals(type, other.type);
         }
     }
 
@@ -226,6 +231,9 @@ public final class SecureInput {
             submit = new Selector(object.getJSONObject("submit_selector"), appId);
             JSONObject environmentObject = object.getJSONObject("environment_selector");
             environment = new Selector(environmentObject, appId);
+            if ((username.type != null && !username.type.equals("textField"))
+                    || (password.type != null && !password.type.equals("secureTextField"))
+                    || submit.type != null || environment.type != null) throw new Failure("invalid_plan");
             if (username.same(password) || username.same(submit) || password.same(submit)
                     || environment.same(username) || environment.same(password) || environment.same(submit)) {
                 throw new Failure("invalid_plan");
@@ -240,6 +248,7 @@ public final class SecureInput {
             success = new ArrayList<>();
             for (int index = 0; index < array.length(); index++) {
                 Selector selector = new Selector(array.getJSONObject(index), appId);
+                if (selector.type != null) throw new Failure("invalid_plan");
                 if (selector.same(username) || selector.same(password) || selector.same(submit) || selector.same(environment)) {
                     throw new Failure("invalid_plan");
                 }
@@ -411,8 +420,8 @@ public final class SecureInput {
         }
 
         boolean isAuthenticated(Tree tree) {
-            return tree.find(plan.username, plan.appId).isEmpty()
-                    && tree.find(plan.password, plan.appId).isEmpty()
+            return (plan.username.type != null || tree.find(plan.username, plan.appId).isEmpty())
+                    && (plan.password.type != null || tree.find(plan.password, plan.appId).isEmpty())
                     && tree.find(plan.submit, plan.appId).isEmpty()
                     && hasSuccessMarker(tree, true);
         }

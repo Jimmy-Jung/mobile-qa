@@ -1,270 +1,241 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-23 · Version: 0.2.0
+Author: JunyoungJung · 2026-10-23 · Version: 0.2.1
 
 [한국어](README.md)
 
-Mobile QA is a local macOS plugin for Codex and Claude Code. It checks whether an app meets the stated expectations through quality assurance (QA), compares designs at native pixel size, and keeps project findings for later runs. Test-account login is available through a separate, scoped procedure. [1], [2], [3]
+Mobile QA replaces eyeballing AI-generated screens with a loop that judges them from real-device captures and pixel metrics.
 
-A report collects observations, judgments, and their evidence in Markdown. The plugin adds no MCP server, lifecycle hook, remote model service, telemetry, or bundled SDK/binary.
+A macOS plugin for Codex and Claude Code. It drives the app on a connected real device, compares what it captures against a baseline pixel by pixel, fixes code within the scope you allow, recaptures under the same conditions, and writes the whole thing up as a Markdown report. [1], [2], [3]
 
-## Tasks and outputs
+The plugin adds no MCP server, lifecycle hook, remote model service, telemetry, or bundled SDK/binary.
 
-Choose the scope in Table 1 before preparing tools or asking the agent to act. An overlay combines the baseline and candidate images; a diff makes their pixel differences visible. [1], [2]
+## Why this exists
 
-*Table 1. Tasks, required inputs, and deliverables*
+Hand a screen to an AI assistant and what usually comes back is *almost right*. The list renders but the filter condition is inverted; the card looks like the design but the spacing is off by a few pixels; the button sits where it should but does something else when tapped. It compiles and it opens, so builds and unit tests do not catch any of it. What remains is a person holding a device, opening screens one by one, comparing them against a remembered baseline, and describing "something looks off" well enough to ask for another attempt.
 
-| Task | What you provide | What you receive |
+That loop is a measured cost, not a feeling. Chart 1 shows the AI section of the 2025 Stack Overflow Developer Survey, answered by more than 49,000 developers. [4]
+
+![Almost-right AI output is developers' top frustration, and only a third say they trust AI accuracy](docs/figures/mqa-chart-01-ai-slop.png)
+
+*Chart 1. Developer responses about AI tools (Stack Overflow 2025)*
+
+Other public studies in Table 1 point the same way.
+
+*Table 1. Public studies on the review cost of AI-written code*
+
+| Study | What it measured | Result |
 |---|---|---|
-| Functional device QA | Project, installed build, target device, scenario, and expected behavior | Item-by-item observations, pass/fail/unverified results, screenshots, and a representative interaction GIF in `report.md` |
-| Existing-app or Figma design review | Baseline app/build or exact Figma frame/version; candidate build; matching viewport, scale, theme, fonts, content, and screen state | Original PNGs, 25/50/75% overlays, visible diff, mismatch mask, pixel metrics, and a report locating discrepancies |
-| Design review with code fixes | The design-review inputs plus the permitted source and build/install scope | First-before versus final-after comparison, changed code references, recaptured evidence, and remaining differences |
-| Project policy, flows, and knowledge | A project path and the relevant policy or QA findings | Project-specific policy links, reusable flow contracts, confirmed findings, and revalidation conditions in the project-specific user data store |
-| Test-account lookup or login | Project, environment, purpose, and—when logging in—a reviewed local profile and target device | A scoped account alias or login outcome, environment verification, and input-cleanup status; no password in the report |
-| Compare existing PNG files | Two supported PNGs with equal native pixel dimensions and matching color conditions | The same deterministic comparison artifacts, without requiring an app, device, or Figma connection |
+| Stack Overflow 2025 survey (49,000+ respondents) [4] | Top frustration when using AI tools | 66% chose "AI solutions that are almost right, but not quite"; 45.2% said debugging AI-generated code takes more time |
+| METR randomized controlled trial (16 experienced open-source developers, 246 real issues) [5] | Completion time with AI allowed versus disallowed | Tasks took 19% longer with AI allowed; the same developers believed AI had made them 20% faster |
+| GitClear 2025 (211 million changed lines, 2020–2024) [6] | Duplication and refactoring trends | Eightfold rise in duplicated blocks of five or more lines during 2024; moved lines down 39.9% |
+| DORA 2025 (~5,000 technology professionals) [7] | AI adoption and delivery stability | Throughput rose, but change failures, rework, and time to restore rose with it |
 
-The skill reuses prepared `agent-device` sessions and project flows. A runner is the process that controls the device UI. Code fixes, app installation, and account use stay within the requested scope.
+The important part of the METR result is not the 19%. It is that the perception ran the other way: the same developers felt faster while measurably getting slower. "I looked at it myself" is therefore not, on its own, evidence of a pass.
 
-The report preserves the first before-image and the final changed-build image. It uses adjacent columns for fixes and gives each comparison target its own column.
+Figure 1 places both loops side by side with the same number of steps. The steps do not shrink — the **basis for the verdict** changes.
 
-The [example report](examples/design-review/report.md) documents the comparison commands, output files, and metric interpretation using synthetic PNG inputs.
+![A loop judged by eye next to a loop judged by captures and pixel metrics, step for step](docs/figures/mqa-01-loops.svg)
 
-A screenshot match is evidence for that image and declared comparison scope. It does not prove app behavior, accessibility, playback, performance, or other devices.
+*Figure 1. Manual review loop versus evidence-based verification loop*
 
-## From installation to a report
+## What produces a verdict
 
-Figure 1 follows the normal device-QA workflow. Fixes return to capture and comparison only when the user has authorized the source and build/install scope. [1], [2]
+Each kind of mismatch surfaces through different evidence: behavioral drift through real interaction and observation, structural drift through overlays against the baseline, and a few pixels of drift through diff images and pixel counts. The plugin produces that evidence and records it with the verdict in a Markdown report. [1], [2]
 
-```mermaid
-flowchart TD
-    A[Install and choose a storage folder at first setup] --> B[Confirm scope, target build and device]
-    B --> C[Read project policy and reuse flows]
-    C --> D[Run, capture and compare pixels]
-    D --> E{Fix needed and authorized?}
-    E -->|Yes| F[Fix source, rebuild and verify installation]
-    F --> D
-    E -->|No| G[Review the report and visual evidence]
-    G --> H[Save project findings and flow contracts]
-```
+![Three kinds of mismatch surface through observation, overlays, and pixel metrics, converging on one verdict](docs/figures/mqa-02-evidence.svg)
 
-*Figure 1. Device QA from first setup to evidence review and project knowledge*
+*Figure 2. Kinds of mismatch and the evidence that surfaces each*
 
-GitHub renders this Mermaid source directly. VSCode’s default Markdown Preview needs a Mermaid extension; the source remains readable without one.
+Without evidence, nothing is reported as a pass. If another task holds the device, the screen is protected from capture, or the installed build cannot be confirmed, the item stays `unverified` or `preparation required`. Two images of different size or state are never auto-scaled or auto-aligned into agreement; the conditions are restored and the screen is captured again. [2]
 
-The folder chooser appears only when no selection is saved. Later runs verify and reuse the same selected volume. A failed check or a blocked capture is reported explicitly; it is never converted into a pass or an automatic fallback outside the selected folder.
+Code fixes happen **only inside the scope the user authorized**, and after a fix the same baseline is recaptured so the first before-image and the final build sit side by side. What closes the loop is a new capture, not the assistant's own account of its work. [1]
 
-## Preparation and quick start
+## Case 1. A black screen that resisted reproduction for a year
 
-### Requirements by scope
+An iPad learning app had collected 8 reports of "audio plays but the video area is black" and 26 reports of "playback stops about a second after it starts." Reinstalling did not help, and the web player and other apps were fine. Builds passed. Tests passed. The cause was that the player treated **a state where the app is visible but receives no events** (`UIApplicationState.inactive`) exactly like the background, a judgment five commits had widened little by little over eighteen months.
 
-The plugin runs locally on macOS. Use Python 3.11–3.13 with the packages in [requirements.txt](requirements.txt), in the Python environment that runs the helpers. Keep environments and package/build caches within the chosen storage folder while following any additional project or host storage policy.
+Reproduction was hard because the conditions stacked. Background playback has to be on; Control Center has to be open so the app goes `Inactive`; and in that state the user has to hit pause and then play in the Now Playing widget. The simulator has no Control Center, and watching the screen by eye leaves nothing behind except the symptom itself.
 
-Table 2 separates image-only comparison from device control, login, and source changes. Prepare the additional tools only for the scope you need. [1], [2], [3]
+Once the four reproduction steps were pinned down, the rest was the loop. The before-fix build was produced by reverting only the four changes in the same working tree (restored afterwards and checked with a diff), both builds carried the same diagnostic logging, and the same device performed the same interaction for both recordings. Figure 3 shows those two recordings.
 
-*Table 2. Preparation required for each scope*
+![Before the fix the video area stays black for about 8 seconds; after the fix it keeps showing video across the same interval](docs/figures/mqa-03-case.svg)
 
-| Scope | Additional preparation |
+*Figure 3. Before and after in case 1 (real-device recordings and logs redrawn as shapes)*
+
+Table 2 lists everything that was checked.
+
+*Table 2. Real-device results from case 1*
+
+| Check | Build · device | Observation | Verdict |
+|---|---|---|---|
+| Reproduction steps | Before fix · iPad 8th gen | Video layer detached right after playback resumed; audio only | Reproduced (unattended automation) |
+| Reproduction steps | Before fix · iPad Pro 11 (M5) | Black video area for about 8 seconds, until Control Center closed | Reproduced (recorded) |
+| Same steps, three times | After fix · iPad Pro 11 (M5) | No detach log in any run; video stayed visible | Pass (recorded) |
+| App switch (PiP path) | After fix · iPad Pro 11 (M5) | PiP started about 0.15 s after resign; no detach | Pass |
+| Background entry without PiP | — | Not executed | Unverified |
+| One-second repeated pause | — | The state could not be produced even on the before-fix build | Unverified |
+
+The point of the table is the two rows that stayed `unverified`. The fix touched four call sites, but one of those paths was never walked on a real device, and the symptom behind 26 of the reports could not be reproduced even on the unfixed build. Instead of promoting either to a pass, the report recorded what is still unknown, and closed only the reproduced half with before/after recordings and logs.
+
+Under a loop judged by eye, this bug stayed "it happens sometimes" for nearly a year. What changed was not a smarter tool. It was pinning the conditions, capturing the same screen twice, and keeping the difference.
+
+This case summarizes an internal fix report from a private repository; the recordings and source are not included here.
+
+## Case 2. Telling whether your own change broke it
+
+After a package restructure and a change to how playback input is ordered, a regression pass ran. Ten items passed and two failed. That pass, however, **made no regression judgment at all.** It stated plainly in the report that without running the same interactions on the pre-change build, there was no way to tell whether these failures came from this change or had always been there.
+
+Stopping there leaves "do I fix this?" unanswered, because standing up the old build on the same device, account, and content is a chore. Every overwrite install drops the login session, and without an untracked local configuration file the first build halts on a settings error. One of the failures also only showed up about half the time, which is exactly the kind of thing a few manual taps will fail to surface.
+
+The second run built the commit immediately before the change in a separate working folder and kept both builds on hand. Which one was running was pinned by the executable hash, and each overwrite install was followed by a fresh login to the same account. Then the same gesture, at the same coordinates and duration, was repeated on both.
+
+*Table 3. The same interaction repeated on both builds*
+
+| Failure from the first pass | Post-change build | Pre-change build | Verdict |
+|---|---|---|---|
+| Network error after dragging far along the timeline (1 of 2 in the first pass) | Two coordinates × 5 runs, 0 errors | Two coordinates × 5 runs, 0 errors | Reproduced on neither build. No evidence linking it to the change |
+| "End" button in section repeat does nothing | Unresponsive across five different tap methods | Identical | Present before the change |
+
+Both were "failures," but one of them was not this work's problem. The repetition also exposed a condition: the controls auto-hide after about three seconds, and a tap before that lands as a visibility toggle rather than a button press. Results only stabilized once a four-second wait preceded each run. By hand, that condition reads as "sometimes the button doesn't take."
+
+## Case 3. Finding a cause that is not on screen
+
+All three paths in a share bar failed. Two messengers showed "install the app" even though both apps were plainly installed, and the SMS path showed "unsupported URL." Reinstalling did not help, and neither did another device.
+
+The only information left on screen is that notice. Nothing about it says whether the three share one cause or have three, and nothing contradicts the app's own claim that the app is missing. Guesses from this position tend to drift toward the install state or the server.
+
+Repeating the same interaction with a real-device console attached split the cause across three log lines.
+
+*Table 4. What the screen showed and what the console said*
+
+| Path | Screen | Console |
+|---|---|---|
+| Messenger A share | "install the app" | `not allowed to query for scheme` — 55th of 58 queryable schemes, past the platform limit of 50, so it was cut off |
+| Messenger B share | Same notice, then a store page after about 5 seconds | Same limit overrun. The navigation is the web SDK's fallback |
+| Send SMS | "unsupported URL" | `-1002`. The external-scheme check only consults that list, misses `sms`, and the WebView tries to load it directly |
+
+The limit itself was cross-checked against the platform's own documentation. After the fix, all three paths were opened again on the same device and passed, and the two pre-fix log lines were confirmed to be **entirely absent** from the final run log. Each item was also checked through the accessibility tree to confirm zero leftover error notices.
+
+The re-verification run turned up one more defect: on the first fix attempt, cancelling the system confirmation dialog still produced "install the app." That was fixed and passed too. One thing was deliberately left outside the scope — while the dialog is up, the web SDK moves the view to a store page, which is not this codebase's behavior, so it was recorded as a remaining issue.
+
+## Case 4. "Success" versus something actually happening
+
+Adding a favorite left the in-progress indicator on screen, and every request after it was rejected. The cause was that the SDK's callback is not a write result but **a notification that the list was re-read**. Code assuming that callback arrives per write waits forever whenever a write is accepted and no notification follows.
+
+This is hard to catch because every signal says success. The SDK reports that it accepted the request, the log shows no failure, and the screen merely looks slow. Confirming it means running the whole flow on a real device — add, leave the screen, come back, delete one, come back again — and restoring the data created each time.
+
+*Table 5. Running the full flow*
+
+| What was checked | Result |
 |---|---|
-| Compare supplied PNGs | Two equal-size, single-frame standard dynamic range (SDR) PNGs of supported bit depth; no device, app signing, Figma account, or native build is needed |
-| QA an already installed app | Separately installed `agent-device` and Node.js >=22.12; authorized Android ADB connection or paired iOS developer device with a prepared signed XCTest runner |
-| Use a Figma baseline | An already connected Figma tool or an exact frame PNG export; record the frame/version, dimensions, export scale, and fonts rather than taking a browser-editor screenshot |
-| Register or update a test account | macOS 13+ and the plugin's signed native helper; enter actual credentials only in its hidden local input dialog |
-| Log in with a stored account | A manually reviewed and registered profile, matching account/project/app/platform/environment, confirmed selected environment on screen, and prepared platform input components |
-| Fix source and retest | Source checkout, permitted change scope, project build/install procedure, required SDKs and signing, and a way to verify that the changed build is installed |
+| Add → add again → re-enter → delete one → delete the rest → re-enter | All six steps passed. The two items created for the check were restored to zero |
+| Momentary completion toast and precise reflection time | Unverified — capture latency. Still frames were not stitched together to stand in for continuous motion |
+| Renaming a label | Unverified — the text input connection never recovered |
 
-For isolated iOS account input, **agent-device 0.21.30** and its pinned source identity are required; other versions are rejected. The source identity uses hashes, which identify file contents.
+At one point the control tool returned a connection error, yet the item was already on screen. The command was not re-sent; the result was confirmed from the screen instead. **A tool failing and an app failing are different events**, and re-sending would have created a duplicate.
 
-The plugin does not auto-upgrade the CLI, alter its global installation, or supply an Apple signing identity. A device-ready build requires valid user signing; an unsigned compilation is not an installable or verified login runner.
+The report also stated the boundary of success: "success here means the request was accepted and the list was reflected; it guarantees neither the SDK's internal async work nor the server finishing its write." Claiming only as much as was checked is part of the result.
 
-Building Android input additionally needs the Android SDK and JDK. Normal QA does not require the account helper when authentication is already valid or unnecessary. [3]
+What these four cases have in common is not a skill gap. It is where the evidence lives. One console line, two builds side by side, one full flow repeated ten times, the same screen captured twice under matched conditions — all doable, none worth doing by hand every time, so they get skipped. The loop does them every time.
 
-Image comparison preserves the input dimensions: it does not resize, align, blur, or crop images to make them match. Re-export or recapture mismatched inputs.
+## Workflows built with agent-device
 
-Use an exact baseline PNG and the same native pixel dimensions, color policy, and capture conditions. The [design-review procedure](skills/mobile-device-qa/references/design-review.md) lists supported input and color-handling limits. [2]
+`agent-device` is a separately installed tool for device interaction, inspection, and evidence collection. **Mobile QA connects those capabilities to project-specific conditions, verdicts, verification after fixes, reusable flows, and reports.** The table separates upstream capabilities from the workflows this plugin assembles. [1], [2], [8]
 
-### Custom tool locations
+| What agent-device provides | Workflow Mobile QA adds | What you receive |
+|---|---|---|
+| UI inspection, taps, text entry, scrolling, waits, and assertions (`snapshot`, `press`, `fill`, `wait`, `is`) | Find targets on the current screen and verify the expected state after each action | Per-item expectations, observations, verdicts, and screenshots |
+| App launch, deep links, home navigation, rotation, and system alerts (`open`, `home`, `orientation`, `alert`) | Check entry, return, rotation, and permission-dialog flows where supported | Observations for each condition and the failing step |
+| Screenshots and recordings (`screenshot`, `record`) | Capture under matching conditions, compare against an existing app or Figma with a separate image tool, then fix authorized code and recapture | Overlays, diffs, pixel metrics, and first-before versus final-after evidence |
+| Logs, network information, and performance artifacts (`logs`, `network`, `perf`, `trace`) | Connect reproduction steps to runtime evidence; check performance with dedicated metrics | Reproduction steps, logs or measurements, and the verified and unverified scope |
+| Batches, replays, and test suites (`batch`, `replay`, `test`) | Reuse verified flows and check before/after builds under the same conditions | Repeated-run results, failing steps, and executable flows with reuse conditions |
+| Device/session selection and capability discovery (`devices`, `session`, `capabilities`) | Bind the project, installed build, and device; reuse sessions and hand over control | Evidence tying observations to the stated build and device |
 
-Set these values in the execution environment when automatic discovery does not match your installation. The plugin does not change global shell or project settings.
+The plugin's Python tool performs image comparison; a connected Figma tool exports the baseline. The separate `test-accounts` skill handles account lookup and secret entry: passwords do not go into ordinary `fill` commands or replays. The host agent edits and builds source through the project's procedures, and supported tools install the prepared app. `agent-device` itself does not edit or build source. [2], [3]
 
-- Android SDK: `ANDROID_HOME` or `ANDROID_SDK_ROOT`; both must identify the same SDK if set together.
-- JDK: `JAVA_HOME`. Otherwise discovery checks registered JDKs, matching `java` and `javac` from `PATH`, and finally the standard Android Studio bundle locations.
-- Xcode: `DEVELOPER_DIR`. The iOS build records the actual Developer directory and reuses it for isolated login execution.
-- iOS runner sources: `MOBILE_QA_AGENT_DEVICE_PACKAGE`. Set the installed package root when a CLI wrapper hides its location. Version and official source hashes remain mandatory; an invalid explicit path does not fall back to another installation.
+Functional QA needs no Figma. An authenticated session needs no account helper, and comparing two supplied PNGs needs neither a device nor `agent-device`. The [operations reference](docs/operations.en.md#agent-device-capabilities-and-plugin-responsibilities) explains the commands and six workflows in detail.
 
-The doctor's `agent_device_source` result verifies the isolated runner sources. It does not establish trust in a wrapper CLI or prove device execution.
+## What it cannot do
 
-### Install
+- **Independently verify physical audio, vibration, or connections.** Speaker/headphone output and cable insertion need a person or separate equipment. `audio probe` covers browser or host-rendered simulator/emulator audio.
+- **Capture every request, change responses, or establish server persistence on its own.** `network` reads HTTP(S) entries in app logs. Missing traffic, response manipulation, and server writes need a proxy, test server, read-back, or other evidence.
+- **Bypass OS security or DRM, or reproduce every system prompt.** Protected video may capture as black, and XCTest can automatically grant pasteboard access, preventing a test of the iOS permission dialog.
+- **Establish performance or complete correctness from images and video.** Recording FPS is not app rendering performance. A verdict does not extend to unseen states, devices, or internal processing, and intermittent bugs are not guaranteed to reproduce.
+- **Support every upstream target equally.** This plugin's device-QA scope is physical iPhones, iPads, and Android devices. It does not adopt the full upstream simulator, macOS, TV, web, remote, or Maestro syntax scope.
 
-Register the [GitHub repository](https://github.com/Jimmy-Jung/mobile-qa) as a marketplace, then install the plugin in the host you use:
+The [operations reference](docs/operations.en.md#limits-and-checks-that-need-other-evidence) separates these limits from checks that need other tools. A supported command is not a verified result on a particular device. [1], [8]
+
+Combining tools can extend preparation and observation. The [workflow candidates](docs/workflow-extensions.en.md) start with **Mac Computer Use sends an AirDrop image → verify arrival → agent-device imports it in the app**, then cover USB preparation, web/mobile synchronization, real push, network faults, QR/OCR, audio, and updates. Each includes prerequisites, evidence boundaries, and cleanup; these combinations are not yet real-device-verified plugin flows.
+
+## Getting started
+
+Install the plugin in the host you use.
 
 ```bash
+# Codex
 codex plugin marketplace add https://github.com/Jimmy-Jung/mobile-qa.git
 codex plugin add mobile-qa@mobile-qa-marketplace
 ```
 
 ```bash
+# Claude Code
 claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.2.0 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.0) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+Run `setup` once to pick the folder where results are kept — `/mobile-qa:setup` in Claude Code, the installed setup skill in Codex. Any existing folder works, internal or external; later runs verify and reuse the same one.
 
-### First setup and readiness
+After that, name the project, the device, and what to check.
 
-Run the setup skill after installation, or before the first QA/build if no configuration exists. Claude Code exposes `/mobile-qa:setup`; in Codex, select the installed setup skill.
+> Use mobile-device-qa on this checkout and the connected Android test device. Keep the existing session. Check that the selected filter survives opening an item and returning to the list. Put the per-item results, screenshots, and a short interaction GIF in a Markdown report.
 
-The setup helper can also run from the plugin root. The commands below configure storage and inspect readiness. [4]
+> Review the new build on the specified iPhone against the attached Figma frame. Capture at the same size, scale, theme, fonts, and content, and find mismatches through overlays and a diff image. Fix the relevant UI code, rebuild, and recapture under the same conditions.
 
-```bash
-python3 -B scripts/setup.py
-python3 -B scripts/doctor.py
-```
+More examples and the full prerequisites are in the [operations reference](docs/operations.en.md).
 
-Setup opens a native folder chooser **only when there is no saved selection**. Choose any existing folder on internal or external storage. Setup verifies the actual volume, mount, UUID, writable status, and symbolic-link-free path, saves the folder and volume identity locally, and reuses them.
+## What you get
 
-The plugin allows both internal and external storage. Apply any additional project or host storage policy when choosing the folder and running work.
+One report (`report.md`) and the images and GIFs it references. Nothing else is needed to read it; move the report and its attachments together. A design review additionally produces overlays, a diff image, and a comparison file with the pixel metrics.
 
-To change the selection explicitly, run `python3 -B scripts/setup.py --storage-dir /path/to/storage-folder`. Setup and native build helpers reject unavailable, mismatched, or unwritable storage and symbolic-link paths; they do not fall back outside the selected folder. `MOBILE_QA_CONFIG` can select a separate non-secret local config file for isolated checks; normal users do not need it. [4]
+There are four verdicts.
 
-The doctor checks the release, local dependencies, selected storage, and prepared account-helper readiness. It does not build or install components, open account secrets, log in, or prove that a device is ready. Read the individual feature and helper results even if its overall status is `ready`. [4]
+- `pass` — the expected behavior was confirmed from evidence on the stated device and build.
+- `fail` — an observation that differs from the expectation, with its evidence.
+- `unverified` — not enough was run or observed. The reason and the next check are recorded.
+- `preparation required` — a tool, build, permission, or screen condition has to come first.
 
-The standalone PNG comparison CLI handles images and paths without reading the storage configuration. For a direct run, follow the [worked example](examples/design-review/report.md#직접-비교-실행): its `verify_output` check runs inside a subshell with `set -e`, so a failed location check stops before either comparison command. Keep the selected volume available, and ask the QA agent to use a verified output location within the chosen folder as well. [2], [4]
+Brightness in an overlay or the area of a diff region is not treated as a cause on its own. Two images of different size or state are never scaled or aligned into agreement; the conditions are restored and the screen is captured again. The [example report](examples/design-review/report.md) shows the file names and metrics against real output.
 
-## Usage examples
-
-In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Claude Code exposes `/mobile-qa:mobile-device-qa` and `/mobile-qa:test-accounts`. Include the project, target build/device, expected behavior, and allowed changes. Unknown details stay unknown until checked. Do not put credentials in the prompt.
-
-**Functional QA**
-
-> Use mobile-device-qa on this checkout and the connected Android test device. Verify opening an item, returning to the list, and restoring the selected filter against the documented behavior. Reuse the existing authenticated session. Include screenshots, a short interaction GIF, and any unverified items in the Markdown report.
-
-**Figma design review with fixes**
-
-> Compare the candidate app with this Figma frame and version on the specified iPhone. Use the same viewport, scale, fonts, theme, content, and screen state. Find pixel differences in overlays and diff images. Fix the relevant UI code, follow this project's build/install procedure, and recapture the final changed build. Keep the Figma baseline fixed and report the first-before and final-after results.
-
-**Existing-app comparison without edits**
-
-> Capture the list screen in the baseline app and candidate build on the same device and state. Compare layout, typography, colors, and assets at native size. Produce overlays, pixel metrics, and a discrepancy report. Do not modify source, reinstall apps, or change accounts.
-
-**Project policy and knowledge**
-
-> Before QA, read this project's local policy and known navigation flows. Apply the documented data-preservation rules. After the run, save newly confirmed findings and reusable flow evidence in this project's QA user data store, with their build scope and revalidation conditions. Keep raw captures on the selected storage.
-
-**Accounts and trusted login profiles**
-
-> Use test-accounts to find a staging account for this project's tester role. Show only the selected alias and readiness. Preserve an existing valid session; otherwise use the already registered sample-staging profile on the specified device and report authentication, environment verification, and cleanup separately.
-
-A login profile is a secret-free JSON contract for the app, environment, input fields, and success checks. For a new account or app, explicitly request account registration or review and register a login profile first. Read [test-accounts](skills/test-accounts/SKILL.md) and the [synthetic profile example](skills/test-accounts/examples/login-profile.example.json).
-
-`register-profile --project PROJECT --file JSON` trusts a reviewed profile; `login` requires `--login-profile NAME`. A repository file is never auto-trusted. Profiles contain metadata and selectors, not credentials, and must be explicitly re-registered after a release change.
-
-The helper verifies the currently selected environment; it does not switch environments or repeat uncertain submissions. Preserve valid authenticated sessions. [3]
-
-## Reading the results
-
-The default deliverable is a Markdown report with its referenced image/GIF files. Keep `report.md` and the selected `assets/` together when opening or sharing it; no separate HTML application is needed. Raw captures and intermediate attempts remain within the selected storage folder. Project knowledge links back to the relevant findings rather than copying raw media into the knowledge store. [1], [5]
-
-Table 3 distinguishes an observed result from missing preparation or evidence. Account selection, authentication, environment verification, and input cleanup remain separate outcomes.
-
-*Table 3. Report states and evidence boundaries*
-
-| In the result | How to interpret it |
-|---|---|
-| `통과` / pass | The stated expectation was checked with evidence for the identified target and build |
-| `실패` / fail | The observed behavior disagreed with the stated expectation; inspect the linked original evidence |
-| `미검증` / unverified | Evidence or identity is missing, a result is uncertain, or the requested scope was not exercised |
-| `준비 필요` / preparation needed | A required tool, capture condition, profile, permission, signing state, or build is not ready |
-| Before/after columns | The initial pre-fix capture and final changed-build capture; intermediate edits are not presented as final evidence |
-| Multiple target columns | Each identified device/build/platform combination, with differing conditions disclosed |
-| `authenticated` and environment verification | A login observation and its environment check, separate from account selection or command acceptance |
-| `cleanup` unconfirmed/failed | Input may remain: do not resume general capture, recording, tree collection, or resubmit login until resolved |
-
-Table 4 explains the design-review files and fields. It separates full-image equality from equality after explicit color handling or exclusion masking. RGBA pixel values contain red, green, blue, and alpha channels. [2]
-
-*Table 4. Design-review artifacts and their scope*
-
-| Artifact or field | What to inspect |
-|---|---|
-| `overlay-25.png`, `overlay-50.png`, `overlay-75.png` | Candidate opacity over the reference; double edges help locate position and size differences |
-| `diff.png` and `mismatch-mask.png` | Visible differences and changed-pixel locations; the visual artifacts show the full image, including any numerically excluded region |
-| `comparison.json` | Input hashes/dimensions, color policy, compared/excluded pixel counts, changed pixels/ratio, channel errors, bounding box, and artifact paths |
-| `raw_exact` | Full decoded RGBA equality before color normalization or exclusion masking |
-| `compared_exact` | Equality only after the declared color handling and only at compared, unmasked pixels |
-| Issue entries | The observed discrepancy, its image location, actual source cause when confirmed, applied fix, and unresolved gaps |
-
-The comparison helper's exit code 0 means the comparison ran, **not** that the images matched. Do not infer a pass from a low percentage alone.
-
-An approved exclusion mask narrows the claim to the unmasked area; it must not conceal the UI under review. A black protected capture, an old-build image, or a missing final capture cannot establish design equality. Functional, visual, and performance results are reported independently. [1], [2]
-
-## Storage and document map
-
-Table 5 separates persistent user data from execution artifacts. User data stays outside the plugin installation folder; the default paths shown below apply to the supported macOS host. Installing or updating the plugin does not migrate existing accounts or project knowledge. [3], [4], [5]
-
-*Table 5. Local state and evidence storage*
-
-| Data | Location |
-|---|---|
-| Selected storage and volume identity | `~/Library/Application Support/mobile-qa/config.json` |
-| Existing account catalog and credential backend | `~/.config/agent-test-accounts/` |
-| Project policies, knowledge, flows, trusted profiles | `~/Library/Application Support/mobile-device-qa/projects/<project-key>/` |
-| Builds, caches, raw logs, screenshots, diffs, video, reports | The selected folder, partitioned by physical project path |
-
-Codex and Claude share these local paths. Account and project data are not included in the public package, and runtime state is not written into the plugin cache. The default credential file is **not encrypted at rest**; see [SECURITY.md](SECURITY.md). [3]
-
-Use Table 6 to find the detailed procedure. Keep local setup and sensitive data out of the README.
-
-*Table 6. Document map*
+## Further reading
 
 | Document | Use it for |
 |---|---|
-| [Setup](skills/setup/SKILL.md) | First storage-folder selection, reuse, and explicit changes |
-| [Device QA](skills/mobile-device-qa/SKILL.md) | Scope, sessions, device ownership, recovery, and reporting |
-| [Design review](skills/mobile-device-qa/references/design-review.md) | Capture conditions, image comparison, authorized fixes, and recapture |
-| [Project knowledge](skills/mobile-device-qa/references/project-knowledge.md) | Policies, reusable flows, findings, and revalidation |
-| [Test accounts](skills/test-accounts/SKILL.md) | Private account storage, profile trust, login, and cleanup |
-| [Example report](examples/design-review/report.md) | Synthetic inputs, measured comparisons, and direct commands |
-| [Security](SECURITY.md) | Exposure boundaries and vulnerability reporting |
+| [Operations reference](docs/operations.en.md) | agent-device capabilities, workflows and limits; prerequisites, install, metrics, and release steps |
+| [Workflow candidates](docs/workflow-extensions.en.md) | Combining AirDrop, Computer Use, APIs, and equipment to supplement a single tool's limits |
+| [Example report](examples/design-review/report.md) | Seeing what the deliverable actually looks like |
+| [Device QA skill](skills/mobile-device-qa/SKILL.md) | The verification rules the agent follows |
+| [Test accounts skill](skills/test-accounts/SKILL.md) | Account storage and the login procedure |
+| [Security](SECURITY.md) | How far secrets are protected, and how to report issues |
 
-### Optional execution role
-
-Claude includes `mobile-qa:mobile-qa-runner`. The [Codex role](integrations/codex/mobile-qa-runner.toml) can be copied explicitly into a supported project's `.codex/agents/`; automatic global registration is not performed. Both inherit the current model by default. The main agent can execute the same bounded workflow when delegation or a role is unavailable. It retains final judgment, code fixes, and knowledge promotion. [6], [10]
-
-## Validation and release limits
-
-Run the three isolated test groups with `python3 -B -m unittest discover -s tests`, then each skill's `tests` directory. Local validation must use a verified temporary directory within the selected storage folder and follow any additional project or host storage policy. CI uses synthetic inputs, mocked volume inspection, and temporary storage; it needs no devices, accounts, or private Library data.
-
-```bash
-python3 -B scripts/package.py --check
-claude plugin validate . --strict
-claude plugin validate .claude-plugin/plugin.json --strict
-```
-
-After reviewing all release sources, the maintainer explicitly freezes `release.json` with `python3 -B scripts/package.py --write-inventory`. Consumers never regenerate it to bypass a mismatch. `python3 -B scripts/package.py --output-dir /selected/storage/folder` creates an archive only after release and public-content checks.
-
-A changed release requires matching helper/runner builds and explicit profile re-registration. These checks do not replace real-device validation.
-
-MIT for original plugin code. See [third-party notices](THIRD_PARTY_NOTICES.md) for upstream runner licensing. Static tests do not establish successful host installation, Figma connection, signing, native readiness, real-device execution, or public publication.
+Original plugin code is MIT; upstream notices are kept in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## References
-
-The host-format references were checked on 2026-10-22. Runtime support depends on the installed host version; the local source references define this plugin's behavior rather than proving a successful device run.
 
 [1] Mobile QA, [Device QA skill](skills/mobile-device-qa/SKILL.md), local workflow contract. Defines scope, evidence, recovery, report defaults, and final judgment.
 
 [2] Mobile QA, [Design-review procedure](skills/mobile-device-qa/references/design-review.md) and [comparison helper](skills/mobile-device-qa/scripts/compare_screenshots.py), local contract and implementation. Defines PNG input handling, comparison metrics, masking, and recapture.
 
-[3] Mobile QA, [Test-account skill](skills/test-accounts/SKILL.md) and [iOS input builder](skills/test-accounts/scripts/build_ios_input.py), local contract and implementation. Defines plaintext storage, profile trust, cleanup, version pinning, and signing requirements.
+[3] Mobile QA, [Test-account skill](skills/test-accounts/SKILL.md), local contract. Defines plaintext storage, profile trust, cleanup, version pinning, and signing requirements.
 
-[4] Mobile QA, [Setup skill](skills/setup/SKILL.md), [storage validation](mobile_qa/storage.py), and [doctor](scripts/doctor.py), local contract and implementation. Defines first selection, saved volume identity, output validation, and read-only diagnostics.
+The external studies were checked on 2026-10-23. Figures from [4] and [5] were read from the primary sources. Figures from [6] and [7] come from public coverage and summary pages, because the full reports sit behind a purchase or registration form.
 
-[5] Mobile QA, [Project knowledge](skills/mobile-device-qa/references/project-knowledge.md), local storage procedure. Defines project-specific policy, flow, finding, and revalidation records.
+[4] Stack Overflow, [2025 Developer Survey — AI](https://survey.stackoverflow.co/2025/ai), primary source. Frustration and trust response rates among 49,000+ developers.
 
-[6] Mobile QA, [Model and return policy](skills/mobile-device-qa/references/model-policy.md) and [Codex role](integrations/codex/mobile-qa-runner.toml), local execution contract. Defines model inheritance, optional delegation, and the main agent's responsibilities.
+[5] METR, [Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity](https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/), primary source. Completion time and perception gap across 16 developers and 246 issues.
 
-[7] Agent Plugins, [Agent Plugins 1.0 manifest schema](https://agent-plugins.org/schemas/1.0.0/plugin.schema.json), official schema. Defines portable plugin identity and extension fields.
+[6] GitClear, [AI Copilot Code Quality: 2025 Look Back at 12 Months of Data](https://www.gitclear.com/ai_assistant_code_quality_2025_research), vendor report. Duplication and moved-line trends across 211 million changed lines.
 
-[8] OpenAI, [Package your plugin](https://developers.openai.com/plugins/build/plugins), official guide. Defines the root manifest, packaging layout, and onboarding skill.
+[7] Google Research, [DORA 2025 State of AI-assisted Software Development Report](https://research.google/pubs/dora-2025-state-of-ai-assisted-software-development-report/), industry report. Relationship between AI adoption, throughput, and instability.
 
-[9] Anthropic, [Plugin manifest reference](https://code.claude.com/docs/en/plugins-reference), official reference. Defines the Claude compatibility manifest and component paths.
-
-[10] Anthropic, [Create custom subagents](https://code.claude.com/docs/en/sub-agents), official guide. Defines plugin roles, model inheritance, and skill preloading.
+[8] Callstack, [Commands](https://oss.callstack.com/agent-device/docs/commands), [Debugging & Profiling](https://oss.callstack.com/agent-device/docs/debugging-profiling), [Known Limitations](https://oss.callstack.com/agent-device/docs/known-limitations), and [Run Maestro flows](https://oss.callstack.com/agent-device/docs/run-maestro-flows). Official documentation checked on 2026-10-23 against the installed CLI 0.21.30 help. Command support is not evidence of a real-device run.

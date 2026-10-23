@@ -263,7 +263,7 @@ class AccountCLITests(unittest.TestCase):
         bound = {**{key: value for key, value in self.login_record("bound").items() if key != "download_device"}, "device_binding": device}
         self.catalog.find.return_value = {"status": "ambiguous", "candidates": [free, bound]}
         code, result = self.run_cli(self.login_args())
-        self.assertEqual((code, result), (1, {"status": "ambiguous"}))
+        self.assertEqual((code, result), (1, {"status": "ambiguous", "candidates": ["free", "bound"]}))
         self.mocks[1].assert_not_called()
         self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
         for name in ["free", "bound"]:
@@ -287,7 +287,7 @@ class AccountCLITests(unittest.TestCase):
                 with self.subTest(capability=capability):
                     self.keychain.login.reset_mock()
                     code, result = self.run_cli(self.login_args("--capability", capability))
-                    self.assertEqual((code, result), (1, {"status": "ambiguous"}))
+                    self.assertEqual((code, result), (1, {"status": "ambiguous", "candidates": ["free", "bound"]}))
                     self.keychain.login.assert_not_called()
                     for name in ["free", "bound"]:
                         code, result = self.run_cli(self.login_args("--capability", capability, "--account", name))
@@ -318,10 +318,18 @@ class AccountCLITests(unittest.TestCase):
         records = [self.login_record("first"), self.login_record("second")]
         self.catalog.find.return_value = {"status": "ambiguous", "candidates": records}
         code, result = self.run_cli(self.login_args())
-        self.assertEqual((code, result), (1, {"status": "ambiguous"}))
+        self.assertEqual((code, result), (1, {"status": "ambiguous", "candidates": ["first", "second"]}))
         code, result = self.run_cli(self.login_args("--account", "outside-scope"))
         self.assertEqual((code, result), (1, {"status": "not_found"}))
         self.mocks[1].assert_not_called()
+
+    def test_login_profile_error_reports_a_safe_recovery_reason(self):
+        from login_plan import ProfileError
+        self.mocks[4].side_effect = ProfileError("profile_not_found")
+        code, result = self.run_cli(self.login_args())
+        self.assertEqual((code, result["status"], result["code"]), (1, "error", "profile_not_found"))
+        self.assertIn("register-profile", result["message"])
+        self.keychain.login.assert_not_called()
 
     def test_login_resolves_alias_only_inside_scoped_candidates(self):
         records = [self.login_record("first"), self.login_record("second")]

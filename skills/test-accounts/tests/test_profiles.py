@@ -71,6 +71,35 @@ class ProfileTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.load(**changes)
 
+    def test_profile_failures_have_safe_actionable_codes(self):
+        with self.assertRaises(ValueError) as failure:
+            self.load()
+        self.assertEqual(getattr(failure.exception, "code", None), "profile_not_found")
+        self.register()
+        with patch.object(profiles, "current_digest", return_value="b" * 64), self.assertRaises(ValueError) as failure:
+            self.load()
+        self.assertEqual(getattr(failure.exception, "code", None), "profile_release_mismatch")
+        with self.assertRaises(ValueError) as failure:
+            self.load(environment="production")
+        self.assertEqual(getattr(failure.exception, "code", None), "profile_scope_mismatch")
+        (self.store / "profiles/sample-staging.json").chmod(0o644)
+        with self.assertRaises(ValueError) as failure:
+            self.load()
+        self.assertEqual(getattr(failure.exception, "code", None), "profile_untrusted")
+
+    def test_damaged_stored_profile_reports_recoverable_error_without_contents(self):
+        self.register()
+        path = self.store / "profiles/sample-staging.json"
+        wrapper = json.loads(path.read_text())
+        for contents in ["password-sentinel", json.dumps({"unexpected": "password-sentinel"}),
+                         json.dumps({**wrapper, "profile": {**PROFILE, "username_selector": {"unknown": "password-sentinel"}}})]:
+            with self.subTest(length=len(contents)):
+                path.write_text(contents)
+                with self.assertRaises(ValueError) as failure:
+                    self.load()
+                self.assertEqual(getattr(failure.exception, "code", None), "profile_untrusted")
+                self.assertNotIn("password-sentinel", str(failure.exception))
+
     def test_mixed_release_and_untrusted_file_are_rejected(self):
         self.register()
         path = self.store / "profiles/sample-staging.json"
