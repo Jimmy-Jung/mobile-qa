@@ -1,6 +1,6 @@
 # Mobile QA operations reference
 
-Author: JunyoungJung · 2026-10-23 · Version: 0.2.1
+Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
 
 This document holds the detailed procedures that agents and operators follow. For what the plugin is and why it exists, see the [README](../README.en.md). Paths and commands apply to the supported macOS host.
 
@@ -128,10 +128,10 @@ Table 2 separates image-only comparison from device control, login, and source c
 | QA an already installed app | Separately installed `agent-device` and Node.js >=22.12; authorized Android ADB connection or paired iOS developer device with a prepared signed XCTest runner |
 | Use a Figma baseline | An already connected Figma tool or an exact frame PNG export; record the frame/version, dimensions, export scale, and fonts rather than taking a browser-editor screenshot |
 | Register or update a test account | macOS 13+ and the plugin's signed native helper; enter actual credentials only in its hidden local input dialog |
-| Log in with a stored account | A manually reviewed and registered profile, matching account/project/app/platform/environment, confirmed selected environment on screen, and prepared platform input components |
+| Log in with a stored account | A supported target, reviewed and registered profile, matching account/project/app/platform/environment, confirmed selected environment on screen, and prepared platform input components. iOS requires a directly USB-connected physical device; Simulator is unsupported |
 | Fix source and retest | Source checkout, permitted change scope, project build/install procedure, required SDKs and signing, and a way to verify that the changed build is installed |
 
-For isolated iOS account input, **agent-device 0.21.30** and its pinned source identity are required; other versions are rejected. The source identity uses hashes, which identify file contents.
+Isolated iOS account input supports **directly USB-connected physical devices and agent-device 0.21.30** with its pinned source identity; other versions are rejected. Allowing account use on Simulator does not add input-tool support. The source identity uses hashes, which identify file contents.
 
 The plugin does not auto-upgrade the CLI, alter its global installation, or supply an Apple signing identity. A device-ready build requires valid user signing; an unsigned compilation is not an installable or verified login runner.
 
@@ -166,7 +166,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.2.1 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.1) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.2.2 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.2) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
 
 ### First setup and readiness
 
@@ -213,11 +213,13 @@ In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Clau
 
 > Use test-accounts to find a staging account for this project's tester role. Show only the selected alias and readiness. Preserve an existing valid session; otherwise use the already registered sample-staging profile on the specified device and report authentication, environment verification, and cleanup separately.
 
-A login profile is a secret-free JSON contract for the app, environment, input fields, and success checks. For a new account or app, explicitly request account registration or review and register a login profile first. Read [test-accounts](../skills/test-accounts/SKILL.md) and the [synthetic profile example](../skills/test-accounts/examples/login-profile.example.json).
+A login profile is a secret-free JSON contract for the app, environment, input fields, and success checks. For a supported target, guide account registration only when no stored account exists; enter actual credentials only in the dedicated local input dialog. Review and register a new app's secret-free profile within the authorized login scope. Read [test-accounts](../skills/test-accounts/SKILL.md) and the [synthetic profile example](../skills/test-accounts/examples/login-profile.example.json).
 
 `register-profile --project PROJECT --file JSON` trusts a reviewed profile; `login` requires `--login-profile NAME`. A repository file is never auto-trusted. Profiles contain metadata and selectors, not credentials, and must be explicitly re-registered after a release change.
 
-The helper verifies the currently selected environment; it does not switch environments or repeat uncertain submissions. Preserve valid authenticated sessions. [3]
+Check target support before preparing or building input tools. For a UUID-form iOS target, `login` checks the `simctl` inventory before accessing the account catalog, profile, or helper. `simulator_not_supported` or `login_target_unverified` leaves login-dependent checks pending preparation. For supported targets, prepare the needed profile and existing input tools, reusing valid tools. Retry only when the failure cause changes or a correction addresses it; if the same cause recurs, continue independent QA. Creating a new input engine, runner, or synthetic login app, or adding field masking or environment buttons to the app, is a separate development task.
+
+iOS environment verification requires one enabled, hittable, selected button. If the current screen does not satisfy this contract, report the specific failure code without modifying the app to fit it. Even when a user supplies credentials in chat, do not pass plaintext through ordinary CUA `setValue`/`type`, `fill`, JavaScript, shell arguments, environment variables, or the clipboard. Use an existing protected input path verified for the current target; otherwise guide the user to enter credentials directly in the app. Pause screen reads, screenshots, and recording during direct user input. Do not require account re-registration. The helper does not switch environments or repeat uncertain submissions. Preserve valid authenticated sessions. [3]
 
 ## Reading the results
 

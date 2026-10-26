@@ -21,9 +21,21 @@ PLAN = {"app_id": "org.example.fixture", "username_selector": {"identifier": "us
         "password_selector": {"identifier": "password"}, "submit_selector": {"identifier": "submit"},
         "success_selectors": [{"identifier": "home"}], "environment_selector": {"label": "Staging"},
         "timeout_ms": 1000, "release_digest": DIGEST}
+ENVIRONMENT_CODES = (
+    "ENVIRONMENT_FIELDS_NOT_READY", "ENVIRONMENT_NOT_UNIQUE", "ENVIRONMENT_NOT_BUTTON",
+    "ENVIRONMENT_NOT_ENABLED", "ENVIRONMENT_NOT_HITTABLE", "ENVIRONMENT_NOT_SELECTED",
+    "ENVIRONMENT_ALIASES_LOGIN_FIELD",
+)
 
 
 class IOSInputBuildTests(unittest.TestCase):
+    def test_environment_diagnostics_are_allowed_by_the_native_transport(self):
+        source = (ios.SKILL_DIR / "native/SecureLogin.swift").read_text()
+        codes = source.split("private static let iosCodes: Set<String> =", 1)[1].split("static func safetySelfTest()", 1)[0]
+        for code in ENVIRONMENT_CODES:
+            with self.subTest(code=code):
+                self.assertIn('"' + code + '"', codes)
+
     @unittest.skipUnless(NATIVE, "Opt in to isolated Swift tests with MOBILE_QA_NATIVE_TESTS=1")
     def test_native_xcode_children_use_only_verified_pinned_developer_directory(self):
         source = (ios.SKILL_DIR / "native/SecureLogin.swift").read_text()
@@ -317,7 +329,7 @@ private final class RunnerTests {
     let fields = [user, pass, submit, environment, unrelatedTextView]
     app.elements = fields
     assert(secureAccountFields(plan, app: app) != nil)
-    assert(secureAccountEnvironment(plan, app: app) === environment)
+    assert(secureAccountEnvironmentFailure(plan, app: app) == nil)
     for selector in [#"{"label":"Account"}"#, #"{"placeholder":"Email"}"#, #"{"type":"textField"}"#] {
       let selected = try! JSONDecoder().decode(SecureAccountSelector.self, from: Data(selector.utf8))
       assert(secureAccountMatches(selected, in: app) == [user])
@@ -486,6 +498,13 @@ private enum SecureLogin {
     let plan = LoginPlan()
     for response: [String: Any] in [
       ["status": "error", "code": "LOGIN_VIEW_NOT_READY"],
+      ["status": "error", "code": "ENVIRONMENT_FIELDS_NOT_READY"],
+      ["status": "error", "code": "ENVIRONMENT_NOT_UNIQUE"],
+      ["status": "error", "code": "ENVIRONMENT_NOT_BUTTON"],
+      ["status": "error", "code": "ENVIRONMENT_NOT_ENABLED"],
+      ["status": "error", "code": "ENVIRONMENT_NOT_HITTABLE"],
+      ["status": "error", "code": "ENVIRONMENT_NOT_SELECTED"],
+      ["status": "error", "code": "ENVIRONMENT_ALIASES_LOGIN_FIELD"],
       ["status": "already_authenticated", "environment_verified": false],
       ["status": "ready", "environment_verified": false],
       ["status": "ready", "environment_verified": "true"],
@@ -646,12 +665,35 @@ assert(runner.preflight(request).status == "error")
 XCUIApplication.elements = ["home": [home]]
 private let reused = runner.preflight(request)
 assert(reused.status == "already_authenticated" && !reused.environmentVerified)
-XCUIApplication.elements = ["username": [username], "password": [password], "submit": [submit], "Staging": [submit]]
-submit.label = "Staging"
-assert(runner.preflight(request).code == "ENVIRONMENT_NOT_VERIFIED")
+XCUIApplication.elements = ["username": [username], "password": [password], "submit": [submit]]
+for field in [username, password, submit] {
+  XCUIApplication.elements["Staging"] = [field]
+  assert(runner.preflight(request).code == "ENVIRONMENT_ALIASES_LOGIN_FIELD")
+}
 XCUIApplication.elements["Staging"] = [environment]
-submit.label = "Sign in"
 assert(runner.preflight(request).status == "ready")
+XCUIApplication.elements["Staging"] = []
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_UNIQUE")
+XCUIApplication.elements["Staging"] = [environment, XCUIElement("another-environment", .button)]
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_UNIQUE")
+XCUIApplication.elements["Staging"] = [environment]
+environment.elementType = .other
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_BUTTON")
+environment.elementType = .button; environment.isEnabled = false
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_ENABLED")
+environment.isEnabled = true; environment.isHittable = false
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_HITTABLE")
+environment.isHittable = true; environment.isSelected = false
+assert(runner.preflight(request).code == "ENVIRONMENT_NOT_SELECTED")
+environment.isSelected = true
+assert(runner.preflight(request).status == "ready")
+for identifier in ["username", "password", "submit"] {
+  environment.identifier = identifier
+  assert(runner.preflight(request).code == "ENVIRONMENT_ALIASES_LOGIN_FIELD")
+}
+environment.identifier = "environment"
+XCUIApplication.elements["username"] = []
+assert(runner.preflight(request).code == "ENVIRONMENT_FIELDS_NOT_READY")
 ''')
 
     def _check_swift(self, checks):

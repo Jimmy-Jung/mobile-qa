@@ -163,6 +163,15 @@ class NativeAdapterTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], ["/native/keychain-helper", "login"])
         self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"id": "sample", "reference": REF, "plan": plan})
 
+    def test_login_accepts_only_safe_specific_environment_diagnostics(self):
+        for reason in ["FIELDS_NOT_READY", "NOT_UNIQUE", "NOT_BUTTON", "NOT_ENABLED",
+                       "NOT_HITTABLE", "NOT_SELECTED", "ALIASES_LOGIN_FIELD"]:
+            with self.subTest(reason=reason):
+                response = {"status": "error", "code": "ENVIRONMENT_" + reason, "environment_verified": False}
+                with patch.object(store.subprocess, "run", return_value=Mock(returncode=1, stdout=json.dumps(response))) as run:
+                    self.assertEqual(store.Keychain().login({"id": "sample", "keychain_ref": REF}, {"platform": "ios"}), response)
+                run.assert_called_once()
+
     def test_login_keeps_finite_platform_specific_wait(self):
         for platform, timeout in [("ios", 360), ("android", 180)]:
             with self.subTest(platform=platform):

@@ -124,6 +124,35 @@ def matches_device(record, args):
     return registered["name"] == (args.device_name or args.device)
 
 
+def login_target_error(args):
+    if args.platform != "ios" or re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", args.device) is None:
+        return None
+    code = "login_target_unverified"
+    try:
+        result = subprocess.run(
+            ["/usr/bin/xcrun", "simctl", "list", "devices", "--json"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        if result.returncode:
+            raise ValueError
+        inventory = json.loads(result.stdout)
+        devices = inventory.get("devices") if isinstance(inventory, dict) else None
+        if not isinstance(devices, dict) or not all(isinstance(items, list) for items in devices.values()):
+            raise ValueError
+        entries = [entry for items in devices.values() for entry in items]
+        if not all(isinstance(entry, dict) and isinstance(entry.get("udid"), str) for entry in entries):
+            raise ValueError
+        if any(entry["udid"].lower() == args.device.lower() for entry in entries):
+            code = "simulator_not_supported"
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    messages = {
+        "simulator_not_supported": "현재 iOS 자동 로그인은 직접 USB 연결된 실기기만 지원합니다. Simulator 입력 도구를 새로 만들지 말고 기존 보호된 인증 경로나 사용자 직접 입력으로 진행하세요.",
+        "login_target_unverified": "iOS 로그인 대상의 종류를 확인하지 못했습니다. Xcode의 기기 목록과 대상 식별자를 확인하세요. 계정·프로필·입력 도구에는 접근하지 않았습니다.",
+    }
+    return {"status": "not_ready", "code": code, "environment_verified": False, "message": messages[code]}
+
+
 def login(args, catalog):
     project = project_key(args.project)
     options = {"app_id": args.app_id, "role": slug(args.role), "project_path": args.project}
@@ -222,6 +251,11 @@ def main(argv=None):
             result = register_profile(args.project, args.file)
             print(json.dumps(result, ensure_ascii=False))
             return 0
+        if args.command == "login":
+            target_error = login_target_error(args)
+            if target_error is not None:
+                print(json.dumps(target_error, ensure_ascii=False))
+                return 1
         catalog = Catalog()
         if args.command == "register":
             result = register(args, catalog)

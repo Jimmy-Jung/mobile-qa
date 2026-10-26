@@ -241,6 +241,9 @@ LOGIN_CODES = {
     "usb_protocol_invalid", "usb_unavailable", "username_input_failed",
     "selectors_not_allowed", "runner_inventory_unavailable", "ios_runner_cleanup_unconfirmed",
     "transport_not_trusted",
+    "ENVIRONMENT_FIELDS_NOT_READY", "ENVIRONMENT_NOT_UNIQUE", "ENVIRONMENT_NOT_BUTTON",
+    "ENVIRONMENT_NOT_ENABLED", "ENVIRONMENT_NOT_HITTABLE", "ENVIRONMENT_NOT_SELECTED",
+    "ENVIRONMENT_ALIASES_LOGIN_FIELD",
     "storage_not_ready", "storage_failed", "invalid_credentials",
 }
 

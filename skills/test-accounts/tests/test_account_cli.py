@@ -249,6 +249,55 @@ class AccountCLITests(unittest.TestCase):
         self.mocks[2].return_value = "example.test/team/ios-app"
         return {**RECORD, "id": identifier, "project": self.mocks[2].return_value, "environment": "production", "role": "learner", **changes}
 
+    def test_simulator_is_rejected_before_catalog_profile_or_helper_access(self):
+        device = "11111111-2222-3333-4444-AAAAAAAAAAAA"
+        inventory = {"devices": {"runtime": [{"udid": device, "isAvailable": False}]}}
+        with patch.object(cli.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(inventory))) as run:
+            code, result = self.run_cli(self.login_args("--device", device.lower()))
+        self.assertEqual((code, result["status"], result["code"]), (1, "not_ready", "simulator_not_supported"))
+        self.assertFalse(result["environment_verified"])
+        self.assertNotIn(device.lower(), json.dumps(result))
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/xcrun", "simctl", "list", "devices", "--json"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 10)
+        for index in [0, 1, 2, 4]:
+            self.mocks[index].assert_not_called()
+
+    def test_unverified_uuid_target_fails_without_exposing_inventory_or_retrying(self):
+        device = "11111111-2222-3333-4444-AAAAAAAAAAAA"
+        for response in [
+            Mock(returncode=1, stdout="password-sentinel", stderr="user-sentinel"),
+            Mock(returncode=0, stdout="password-sentinel"),
+            Mock(returncode=0, stdout='[]'),
+            Mock(returncode=0, stdout='{"devices": []}'),
+            Mock(returncode=0, stdout='{"devices": {"runtime": null}}'),
+            Mock(returncode=0, stdout='{"devices": {"runtime": [null]}}'),
+            Mock(returncode=0, stdout='{"devices": {"runtime": [{}]}}'),
+            Mock(returncode=0, stdout='{"devices": {}}'),
+            Mock(returncode=0, stdout='{"devices": {"runtime": [{"udid": "22222222-2222-3333-4444-AAAAAAAAAAAA"}]}}'),
+            OSError("password-sentinel"),
+            cli.subprocess.TimeoutExpired("password-sentinel", 10, output="user-sentinel"),
+        ]:
+            with self.subTest(response=type(response).__name__):
+                options = {"side_effect": response} if isinstance(response, Exception) else {"return_value": response}
+                with patch.object(cli.subprocess, "run", **options) as run:
+                    code, result = self.run_cli(self.login_args("--device", device))
+                self.assertEqual((code, result["status"], result["code"]), (1, "not_ready", "login_target_unverified"))
+                self.assertFalse(result["environment_verified"])
+                self.assertNotIn(device, json.dumps(result))
+                run.assert_called_once()
+        for index in [0, 1, 2, 4]:
+            self.mocks[index].assert_not_called()
+
+    def test_physical_ios_and_android_login_do_not_query_simulator_inventory(self):
+        self.catalog.find.return_value = {"candidates": [self.login_record()]}
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        for platform, device in [("ios", "00008101-0012345678901234"), ("ios", "a" * 40),
+                                 ("android", "11111111-2222-3333-4444-AAAAAAAAAAAA")]:
+            with self.subTest(platform=platform, device=device), patch.object(cli.subprocess, "run") as run:
+                code, result = self.run_cli(self.login_args("--platform", platform, "--device", device))
+            self.assertEqual((code, result["status"]), (0, "authenticated"))
+            run.assert_not_called()
+
     def test_unbound_download_is_a_normal_login_candidate(self):
         free = self.login_record("free")
         self.catalog.find.return_value = {"status": "selected", "candidates": [free]}
@@ -406,6 +455,18 @@ class AccountCLITests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(result["cleanup"], "unconfirmed")
         self.assertEqual(result["code"], "SUCCESS_NOT_OBSERVED")
+
+    def test_login_preserves_specific_environment_failure_without_retry(self):
+        self.catalog.find.return_value = {"candidates": [self.login_record()]}
+        for reason in ["FIELDS_NOT_READY", "NOT_UNIQUE", "NOT_BUTTON", "NOT_ENABLED",
+                       "NOT_HITTABLE", "NOT_SELECTED", "ALIASES_LOGIN_FIELD"]:
+            with self.subTest(reason=reason):
+                response = {"status": "error", "code": "ENVIRONMENT_" + reason, "environment_verified": False}
+                self.keychain.login.reset_mock()
+                self.keychain.login.return_value = response
+                code, result = self.run_cli(self.login_args())
+                self.assertEqual((code, result), (1, {**response, "account": "first"}))
+                self.keychain.login.assert_called_once()
 
     def test_login_preserves_unverified_environment_when_reusing_session(self):
         self.catalog.find.return_value = {"status": "selected", "candidates": [self.login_record()]}

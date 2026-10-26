@@ -1,6 +1,6 @@
 # Mobile QA 운영 레퍼런스
 
-Author: JunyoungJung · 2026-10-23 · Version: 0.2.1
+Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
 
 이 문서는 에이전트와 운영자가 참조하는 상세 절차입니다. 플러그인이 무엇이고 왜 쓰는지는 [README](../README.md)에 있습니다. 경로와 명령은 지원 운영체제인 macOS 기준입니다.
 
@@ -128,10 +128,10 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 | iOS 실기기 | Xcode·명령행 도구, 페어링·개발자 모드, 필요한 runner와 유효한 사용자 서명 |
 | Android 실기기 | 승인된 ADB 연결; 계정 입력 JAR 빌드에는 Android SDK·JDK 추가 필요 |
 | 계정 등록·변경 | macOS 13 이상, 사용자 서명을 준비한 native helper와 비밀값 전용 로컬 입력 창 |
-| 전용 계정 로그인 | 저장된 시험 계정, 검토·신뢰 등록한 프로필, 해당 플랫폼 입력 도구, 현재 환경을 확인할 수 있는 로그인 화면 |
+| 전용 계정 로그인 | 지원 대상 확인, 저장된 시험 계정, 검토·신뢰 등록한 프로필, 해당 플랫폼 입력 도구, 현재 환경을 확인할 수 있는 로그인 화면. iOS는 직접 USB 연결 실기기 전용이며 Simulator 미지원 |
 | 코드 수정·재검수 | 수정할 checkout과 범위, 프로젝트 빌드·설치 절차, 반영된 빌드를 확인할 방법 |
 
-iOS 전용 계정 입력은 **agent-device 0.21.30**의 검증한 소스만 지원합니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
+iOS 전용 계정 입력은 **직접 USB 연결된 실기기와 agent-device 0.21.30**의 검증한 소스만 지원합니다. Simulator 계정 사용을 허용해도 입력 도구의 지원 기능은 바뀌지 않습니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
 
 ### 사용자 도구 경로
 
@@ -164,7 +164,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 Python 환경에 [requirements.txt](../requirements.txt)의 패키지를 준비하고 기기 QA에는 `agent-device`를 별도로 설치합니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
-로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.2.1 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.1)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
+로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.2.2 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.2)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
 ## 최초 저장소 선택
 
@@ -213,7 +213,11 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 
 > test-accounts로 이 프로젝트의 staging 환경 tester 용도 계정을 찾아줘. 선택한 별칭과 준비 상태만 알려줘. 정상 로그인 세션은 유지하고, 로그인이 필요하면 미리 신뢰 등록한 sample-staging 프로필과 지정한 기기를 사용해줘. 로그인 결과·환경 확인·입력 정리 상태를 구분해서 보고해줘.
 
-로그인 프로필은 앱·환경·입력 필드·성공 확인 방법을 정의하는 비밀값 없는 JSON 계약입니다. 계정이나 앱이 처음이면 계정 등록 또는 프로필 검토·등록을 먼저 요청합니다. 실제 아이디·비밀번호는 전용 로컬 입력 창으로 등록합니다. [가상 프로필](../skills/test-accounts/examples/login-profile.example.json)을 그대로 신뢰하지 말고 실제 앱 ID·환경·용도·화면 selector와 대조한 후 `register-profile --project PROJECT --file JSON`으로 명시 등록합니다. `login`에는 `--login-profile NAME`이 필요합니다. release·도구·프로필 내용이 바뀌면 다시 검토·등록합니다. 자세한 준비와 호출은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
+로그인 프로필은 앱·환경·입력 필드·성공 확인 방법을 정의하는 비밀값 없는 JSON 계약입니다. 지원 대상에서 저장된 계정이 없을 때만 계정 등록을 안내하며 실제 아이디·비밀번호는 전용 로컬 입력 창으로 등록합니다. 새 앱의 비밀 없는 프로필은 승인된 로그인 범위에서 검토·등록합니다. [가상 프로필](../skills/test-accounts/examples/login-profile.example.json)을 그대로 신뢰하지 말고 실제 앱 ID·환경·용도·화면 selector와 대조한 후 `register-profile --project PROJECT --file JSON`으로 명시 등록합니다. `login`에는 `--login-profile NAME`이 필요합니다. release·도구·프로필 내용이 바뀌면 다시 검토·등록합니다. 자세한 준비와 호출은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
+
+입력 도구 준비·빌드 전에 대상 지원 여부를 확인합니다. UUID형 iOS 대상은 `login`이 계정 목록·프로필·helper 접근 전에 `simctl` 목록과 대조하며, `simulator_not_supported` 또는 `login_target_unverified`이면 로그인 의존 항목을 `준비 필요`로 남깁니다. 지원 대상에서 필요한 프로필 준비와 기존 도구 빌드는 진행하되 정상 도구는 재사용합니다. 실패 원인이 달라지거나 수정 근거가 있을 때만 재시도하고 같은 원인이 반복되면 독립 QA를 계속합니다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 앱의 필드 마스킹·환경 버튼 추가는 별도 개발 작업입니다.
+
+iOS 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 사용자가 앱에 직접 입력하도록 안내합니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 계정 재등록은 요구하지 않습니다.
 
 ## 결과물 구조와 수치 해석
 

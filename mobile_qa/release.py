@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 
-RELEASE_VERSION = "0.2.1"
+RELEASE_VERSION = "0.2.2"
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {"plugin.json", "README.md", "README.en.md", "README.ko.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
               "SECURITY.md", "requirements.txt", ".gitignore"}

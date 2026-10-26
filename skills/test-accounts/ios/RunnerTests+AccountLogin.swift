@@ -295,10 +295,10 @@ extension RunnerTests {
       && secureAccountHasPostLoginMarker(plan, app: app, requireUnique: true)
   }
 
-  private func secureAccountEnvironment(_ plan: SecureAccountPlan, app: XCUIApplication) -> XCUIElement? {
-    guard let fields = secureAccountFields(plan, app: app) else { return nil }
+  private func secureAccountEnvironmentFailure(_ plan: SecureAccountPlan, app: XCUIApplication) -> String? {
+    guard let fields = secureAccountFields(plan, app: app) else { return "ENVIRONMENT_FIELDS_NOT_READY" }
     let matches = secureAccountMatches(plan.environment_selector, in: app)
-    guard matches.count == 1 else { return nil }
+    guard matches.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
     let target = matches[0]
     let aliasesLoginField = [plan.username_selector, plan.password_selector, plan.submit_selector].contains { selector in
       if let identifier = selector.identifier { return target.identifier == identifier }
@@ -306,10 +306,13 @@ extension RunnerTests {
       if let placeholder = selector.placeholder { return target.placeholderValue == placeholder }
       return false
     }
-    guard target.elementType == .button, target.isEnabled, target.isHittable, target.isSelected,
-      ![fields.0, fields.1, fields.2].contains(where: { $0.isEqual(target) }), !aliasesLoginField
-    else { return nil }
-    return target
+    guard ![fields.0, fields.1, fields.2].contains(where: { $0.isEqual(target) }), !aliasesLoginField
+    else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
+    guard target.elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
+    guard target.isEnabled else { return "ENVIRONMENT_NOT_ENABLED" }
+    guard target.isHittable else { return "ENVIRONMENT_NOT_HITTABLE" }
+    guard target.isSelected else { return "ENVIRONMENT_NOT_SELECTED" }
+    return nil
   }
 
   private func secureAccountFields(_ plan: SecureAccountPlan, app: XCUIApplication, forCleanup: Bool = false) -> (XCUIElement, XCUIElement, XCUIElement)? {
@@ -339,9 +342,10 @@ extension RunnerTests {
     if secureAccountHasSuccess(plan, app: app) {
       return SecureAccountResult(status: "already_authenticated", code: "SESSION_REUSED", environmentVerified: false)
     }
-    guard secureAccountFields(plan, app: app) != nil, !secureAccountHasPostLoginMarker(plan, app: app)
+    guard !secureAccountHasPostLoginMarker(plan, app: app)
     else { return .error("LOGIN_VIEW_NOT_READY") }
-    guard secureAccountEnvironment(plan, app: app) != nil, operation.canContinue
+    if let failure = secureAccountEnvironmentFailure(plan, app: app) { return .error(failure) }
+    guard operation.canContinue
     else { return .error("ENVIRONMENT_NOT_VERIFIED") }
     if request.action == "preflight" {
       return SecureAccountResult(status: "ready", code: "LOGIN_VIEW_READY", environmentVerified: true)
@@ -363,7 +367,7 @@ extension RunnerTests {
         secureAccountReplace(password, in: passwordFields.1, app: app),
         operation.canContinue,
         let submitFields = secureAccountFields(plan, app: app),
-        secureAccountEnvironment(plan, app: app) != nil
+        secureAccountEnvironmentFailure(plan, app: app) == nil
       else { return .error("INPUT_UNAVAILABLE") }
       submitFields.2.tap()
       let predicate = NSPredicate { _, _ in
