@@ -19,7 +19,7 @@ SIMCTL = '/synthetic/simctl'
 class DoctorTests(unittest.TestCase):
     def test_simulator_mode_is_ready_without_agent_device_signing_or_account_helper(self):
         stream = StringIO()
-        with patch.object(doctor, 'verify_release', return_value={'version': '0.2.2'}), \
+        with patch.object(doctor, 'verify_release', return_value={'version': '0.3.0'}), \
              patch.object(doctor.sys, 'platform', 'darwin'), \
              patch.object(doctor.importlib.metadata, 'version', return_value='synthetic'), \
              patch.object(doctor.shutil, 'which', return_value=None), \
@@ -106,7 +106,7 @@ class DoctorTests(unittest.TestCase):
         ]:
             stream = StringIO()
             with self.subTest(tools=tools), \
-                 patch.object(doctor, 'verify_release', return_value={'version': '0.2.2'}), \
+                 patch.object(doctor, 'verify_release', return_value={'version': '0.3.0'}), \
                  patch.object(doctor, 'detect_tools', return_value=tools), \
                  patch.object(doctor, 'load_settings', return_value={}), \
                  patch.object(doctor, 'verify_storage', return_value={'storage_dir': '/synthetic/storage'}), \
@@ -117,7 +117,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_simulator_mode_keeps_storage_failures_and_does_not_prepare_it(self):
         stream = StringIO()
-        with patch.object(doctor, 'verify_release', return_value={'version': '0.2.2'}), \
+        with patch.object(doctor, 'verify_release', return_value={'version': '0.3.0'}), \
              patch.object(doctor, 'detect_tools', return_value={'macos': True, 'simctl': '/synthetic/simctl', 'Pillow': 'synthetic', 'numpy': 'synthetic'}), \
              patch.object(doctor, 'load_settings', side_effect=ValueError('run setup first')), \
              patch.object(doctor, 'helper_readiness') as helper, redirect_stdout(stream):
@@ -130,7 +130,7 @@ class DoctorTests(unittest.TestCase):
         for agent_device, expected in [(None, 1), ('/synthetic/agent-device', 0)]:
             stream = StringIO()
             with self.subTest(agent_device=agent_device), \
-                 patch.object(doctor, 'verify_release', return_value={'version': '0.2.2'}), \
+                 patch.object(doctor, 'verify_release', return_value={'version': '0.3.0'}), \
                  patch.object(doctor, 'detect_tools', return_value={'macos': True, 'agent-device': agent_device, 'Pillow': 'synthetic', 'numpy': 'synthetic'}) as tools, \
                  patch.object(doctor, 'load_settings', return_value={}), \
                  patch.object(doctor, 'verify_storage', return_value={'storage_dir': '/synthetic/storage'}), \

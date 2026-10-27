@@ -19,11 +19,11 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / ".claude-plugin").mkdir()
         for name in ["plugin.json", ".claude-plugin/plugin.json"]:
-            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.2.2"}))
+            (self.root / name).write_text(json.dumps({"name": "mobile-qa", "version": "0.3.0"}))
 
     def test_inventory_accepts_complete_release_and_detects_tampering(self):
         release.write_inventory(self.root)
-        self.assertEqual(release.verify_release(self.root)["version"], "0.2.2")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.3.0")
         (self.root / "plugin.json").write_text("{}")
         with self.assertRaises(ValueError):
             release.verify_release(self.root)
@@ -37,7 +37,7 @@ class ReleaseTests(unittest.TestCase):
     def test_codex_install_receipt_is_excluded_only_from_installed_integrity(self):
         release.write_inventory(self.root)
         (self.root / ".codex-marketplace-install.json").write_text('{"revision":"synthetic"}')
-        self.assertEqual(release.verify_release(self.root)["version"], "0.2.2")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.3.0")
         with self.assertRaises(ValueError):
             release.safety_check(self.root)
         (self.root / "plugin.json").write_text("{}")
@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     release.verify_release(self.root)
                 path.unlink()
-        self.assertEqual(release.verify_release(self.root)["version"], "0.2.2")
+        self.assertEqual(release.verify_release(self.root)["version"], "0.3.0")
 
     def test_korean_default_and_english_readme_are_both_in_the_release(self):
         (self.root / 'README.md').write_text('# Mobile QA\n\n한국어 사용 안내\n')

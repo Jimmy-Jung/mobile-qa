@@ -6,10 +6,10 @@
   "plugins": [
     {
       "name": "mobile-qa",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "source": "./",
-      "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login."
+      "description": "Local iOS, Android and Flutter QA, Simulator/Emulator support, pixel review, and protected test-account login."
     }
   ],
-  "description": "Local mobile device QA, pixel review, project knowledge, and scoped test login."
+  "description": "Local iOS, Android and Flutter QA, Simulator/Emulator support, pixel review, and protected test-account login."
 }

@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.3.0
 
 [English](README.en.md) · [결과 리포트 예시](examples/design-review/report.md)
 

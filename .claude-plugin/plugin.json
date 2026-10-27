@@ -1,6 +1,6 @@
 {
   "name": "mobile-qa",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "iOS, Android and Flutter device, Simulator and Emulator QA with reusable tests, independent pixel review, and Markdown/GIF reports.",
   "author": {
     "name": "JunyoungJung"

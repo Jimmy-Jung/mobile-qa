@@ -1,6 +1,6 @@
 # Mobile QA operations reference
 
-Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.3.0
 
 This document holds the detailed procedures that agents and operators follow. For what the plugin is and why it exists, see the [README](../README.en.md). Paths and commands apply to the supported macOS host.
 
@@ -174,7 +174,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.2.2 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.2) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.3.0 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.0) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
 
 ### First setup and readiness
 
