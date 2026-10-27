@@ -1,8 +1,12 @@
 # Mobile QA operations reference
 
-Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
 
 This document holds the detailed procedures that agents and operators follow. For what the plugin is and why it exists, see the [README](../README.en.md). Paths and commands apply to the supported macOS host.
+
+## Tool selection
+
+Follow the [role-based defaults](../skills/mobile-device-qa/SKILL.md) and [detailed routing policy](../skills/mobile-device-qa/references/tool-selection.md). Use `simctl` with installed `xcui`/AXe or CUA for iOS, and Android CLI with ADB for Android Emulator. Reuse existing tests; add Maestro for necessary shared flows and Patrol for Flutter/OS/native boundaries. Keep original PNG comparison and Markdown/GIF reports independent of the interaction tool.
 
 ## Workflow
 
@@ -35,13 +39,15 @@ Choose the scope in Table 1 before preparing tools or asking the agent to act. A
 | Task | What you provide | What you receive |
 |---|---|---|
 | Functional device QA | Project, installed build, target device, scenario, and expected behavior | Item-by-item observations, pass/fail/unverified results, screenshots, and a representative interaction GIF in `report.md` |
+| iOS Simulator QA and design review | Simulator app build, exact UDID, runtime, screen conditions, an available interaction path, and `simctl` | Original captures, interaction evidence, pixel comparison, and a Markdown report identifying the Simulator scope |
+| Android Emulator QA and design review | Emulator build, exact serial, Android version, screen conditions, Android CLI/ADB and existing UI tests | Original PNGs, interaction evidence, pixel comparison and Markdown report; use ADB/existing tools when the CLI is unavailable |
 | Existing-app or Figma design review | Baseline app/build or exact Figma frame/version; candidate build; matching viewport, scale, theme, fonts, content, and screen state | Original PNGs, 25/50/75% overlays, visible diff, mismatch mask, pixel metrics, and a report locating discrepancies |
 | Design review with code fixes | The design-review inputs plus the permitted source and build/install scope | First-before versus final-after comparison, changed code references, recaptured evidence, and remaining differences |
 | Project policy, flows, and knowledge | A project path and the relevant policy or QA findings | Project-specific policy links, reusable flow contracts, confirmed findings, and revalidation conditions in the project-specific user data store |
-| Test-account lookup or login | Project, environment, purpose, and—when logging in—a reviewed local profile and target device | A scoped account alias or login outcome, environment verification, and input-cleanup status; no password in the report |
+| Test-account lookup or login | Project, environment, purpose, target, and a reviewed local profile when using the dedicated helper | A scoped account alias or login outcome, environment verification, and input-cleanup status; no password in the report |
 | Compare existing PNG files | Two supported PNGs with equal native pixel dimensions and matching color conditions | The same deterministic comparison artifacts, without requiring an app, device, or Figma connection |
 
-The skill reuses prepared `agent-device` sessions and project flows. A runner is the process that controls the device UI. Code fixes, app installation, and account use stay within the requested scope.
+Physical-device QA reuses prepared `agent-device` sessions and project flows. iOS Simulator can follow [Simulator QA](../skills/mobile-device-qa/references/simulator.md) with existing UI tests, host screen control, or installed Simulator tools and `simctl` capture. The selected interaction path determines which runner, if any, is needed. Code fixes, app installation, and account use stay within the requested scope.
 
 The report preserves the first before-image and the final changed-build image. It uses adjacent columns for fixes and gives each comparison target its own column.
 
@@ -69,7 +75,7 @@ The capabilities below reflect **CLI 0.21.30 help and official documentation che
 
 iOS system UI can be inspected and controlled by rebinding the session with `open com.apple.springboard`. The installed CLI's `help ios-system-ui` distinguishes upstream-verified physical-iPhone coverage—opening SpringBoard, snapshots, and pressing visible icons—from widget add/edit/remove steps, which are verified only on simulators and need separate physical-device verification. [11]
 
-Upstream also provides audio-level probes, TV remotes, web/desktop targets, and remote devices. This plugin's **device-QA scope is physical iPhones, iPads, and Android devices**; other upstream targets do not automatically enter that scope. PNG-only comparison runs without device control.
+Upstream also provides audio-level probes, TV remotes, web/desktop targets, and remote devices. This plugin's **device-QA scope includes physical iPhones, iPads, Android devices, iOS Simulator, and Android Emulator**; other upstream targets do not automatically enter that scope. Simulator QA, design review, and reporting can run without `agent-device`, with results kept separate from physical-device findings. PNG-only comparison runs without device control.
 
 Other components own these tasks:
 
@@ -84,7 +90,7 @@ Other components own these tasks:
 2. **Fix the conditions, then reproduce an intermittent bug.** Match the account, content, settings, and starting state; repeat the interaction and capture the needed video and logs. A symptom that did not reproduce is not declared fixed: retain run counts, failing steps, and unverified conditions. [README case 1](../README.en.md#case-1-a-black-screen-that-resisted-reproduction-for-a-year) illustrates this workflow.
 3. **Capture, compare, fix, and recapture a design.** Match size, scale, theme, content, and state between the candidate and an existing app or Figma frame. Analyze original screenshots with the separate comparison tool, then rebuild/install through project procedures when fixes are authorized and report the first before-image beside the final after-image. [2]
 4. **Prepare before/after builds, then run the same regression flow.** The host agent prepares both builds through project procedures and verifies the installed one. Run verified batches, replays, or existing tests under matching conditions to distinguish a new defect, an existing defect, and an unreproduced symptom. Recorded coordinates are not blindly replayed after screen or starting conditions change. [README case 2](../README.en.md#case-2-telling-whether-your-own-change-broke-it) illustrates this workflow.
-5. **Check authentication, use dedicated login, and resume QA.** Reuse a valid authenticated session first. Only when needed, choose the account for the project/environment/device and enter it through a trusted profile and dedicated helper while captures, recording, and tree reads are paused. Resume ordinary QA after login, environment verification, and input cleanup finish. [3]
+5. **Check authentication, execute or recover a login path, and resume QA.** Reuse a valid authenticated session first. Only when needed, choose the account for the project/environment/device and use protected input. If the dedicated helper fails, repair its preparation, use another verified protected path, or request only the necessary user action. Pause captures, recording, and tree reads during secret input. Verify authentication, environment, and input cleanup, then resume the original QA. [3]
 6. **Promote a verified run into reusable flows and knowledge.** Register the `.ad`, YAML, batch file, or existing test entry point with its contract, starting/ending conditions, expectations, and evidence in the project catalog. Search existing assets before the next run; keep unexecuted candidates as `draft` and invalidated assets as `needs_revalidation`. [5], [Reusable flows](../skills/mobile-device-qa/references/reusable-flows.md)
 
 These are the procedures the skills define. A pass on a particular build and device still requires that run's report and original evidence. The main agent owns expectations and final judgment; an optional runner returns actions and observations. [6]
@@ -103,7 +109,7 @@ These are the procedures the skills define. A pass on a particular build and dev
 | Every Android keyboard or clipboard path | The Unicode test IME changes keyboard conditions, and some systems lack the ADB clipboard command entirely. [13] | Test real-keyboard behavior separately; verify clipboard behavior by copying/pasting in the app and reading the field |
 | Semantic identification on every screen | Custom drawing or incomplete accessibility data may provide no usable refs/selectors. | Coordinates grounded in a current screenshot; unverified if the screen cannot be inspected either |
 | FPS, latency, or complete quality from recordings | Recording FPS and command latency are not app rendering metrics. Image equality does not establish behavior, accessibility, or other devices. | Prepared platform measurements and a matching baseline; missing samples are unverified, not zero [1], [Performance procedure](../skills/mobile-device-qa/references/performance.md) |
-| Identical support across platforms and Maestro flows | Command support varies by target; Maestro YAML runs only its supported subset. [11], [14] | Check installed `help`, `capabilities`, and flow contracts; use existing project tests or report preparation required |
+| Identical support across platforms and Maestro flows | Command support varies by target; the `agent-device` Maestro-compatible runner executes only its supported subset. Standalone Maestro CLI has a separate execution contract. [11], [14] | Check installed `help`, `capabilities`, and flow contracts; use existing project tests or report preparation required |
 | Automatic account, signing, and build setup | Installing the CLI does not prepare iOS pairing, Developer Mode, runner signing, SDKs, or accounts. | Complete project preparation first; UI QA does not replace unit/integration tests or security review [1], [3] |
 
 ## Candidates that connect other tools
@@ -125,13 +131,15 @@ Table 2 separates image-only comparison from device control, login, and source c
 | Scope | Additional preparation |
 |---|---|
 | Compare supplied PNGs | Two equal-size, single-frame standard dynamic range (SDR) PNGs of supported bit depth; no device, app signing, Figma account, or native build is needed |
-| QA an already installed app | Separately installed `agent-device` and Node.js >=22.12; authorized Android ADB connection or paired iOS developer device with a prepared signed XCTest runner |
+| QA an installed app on a physical device | Separately installed `agent-device` and Node.js >=22.12; authorized Android ADB connection or paired iOS developer device with a prepared signed XCTest runner |
+| iOS Simulator | Xcode's `simctl`, a verified Simulator/runtime, and a Simulator app build. Choose existing UI tests or available screen control; `agent-device`, physical-device signing, and the account helper are not required |
+| Android Emulator | Verified emulator/Android version, emulator app build, and exact ADB serial. Prefer installed Android CLI+ADB for exploration/capture; fall back to ADB/existing Android UI tests when the CLI is unavailable. Physical-device `agent-device` diagnostics are not a prerequisite |
 | Use a Figma baseline | An already connected Figma tool or an exact frame PNG export; record the frame/version, dimensions, export scale, and fonts rather than taking a browser-editor screenshot |
-| Register or update a test account | macOS 13+ and the plugin's signed native helper; enter actual credentials only in its hidden local input dialog |
-| Log in with a stored account | A supported target, reviewed and registered profile, matching account/project/app/platform/environment, confirmed selected environment on screen, and prepared platform input components. iOS requires a directly USB-connected physical device; Simulator is unsupported |
+| Register or update a test account | macOS 13+ and the plugin's signed native helper. The hidden local dialog is the default; new accounts supplied in the current chat can also use the stdin pipe registration path |
+| Dedicated stored-account helper | A supported target, reviewed and registered profile, matching account/project/app/platform/environment, confirmed selected environment on screen, and prepared platform input components. iOS uses separate verified input components for directly USB-connected devices and available, booted Simulators |
 | Fix source and retest | Source checkout, permitted change scope, project build/install procedure, required SDKs and signing, and a way to verify that the changed build is installed |
 
-Isolated iOS account input supports **directly USB-connected physical devices and agent-device 0.21.30** with its pinned source identity; other versions are rejected. Allowing account use on Simulator does not add input-tool support. The source identity uses hashes, which identify file contents.
+Isolated iOS account input uses separate verified runners for **directly USB-connected devices and booted Simulators**, based on pinned agent-device 0.21.30 source. Prepare Simulator input with `build_ios_input.py --simulator` followed by `build_helper.py --simulator-only`; no physical-device certificate is needed. The helper independently checks the exact UUID and artifact identities and uses authenticated, encrypted loopback communication. The source identity uses hashes, which identify file contents.
 
 The plugin does not auto-upgrade the CLI, alter its global installation, or supply an Apple signing identity. A device-ready build requires valid user signing; an unsigned compilation is not an installable or verified login runner.
 
@@ -179,19 +187,21 @@ python3 -B scripts/setup.py
 python3 -B scripts/doctor.py
 ```
 
+For Simulator readiness, use `python3 -B scripts/doctor.py --simulator --project-dir "$PROJECT_DIR"` instead of the default doctor. It checks `simctl`, Pillow/NumPy, and selected storage without requiring `agent-device`, Android tools, or the account helper. A `ready` result with `scope=simulator_capture_and_pixel_comparison` covers capture and pixel-comparison preparation only. UI control, app execution, and authentication remain in `not_checked` and must be verified on the actual target.
+
 Setup opens a native folder chooser **only when there is no saved selection**. Choose any existing folder on internal or external storage. Setup verifies the actual volume, mount, UUID, writable status, and symbolic-link-free path, saves the folder and volume identity locally, and reuses them.
 
 The plugin allows both internal and external storage. Apply any additional project or host storage policy when choosing the folder and running work.
 
 To change the selection explicitly, run `python3 -B scripts/setup.py --storage-dir /path/to/storage-folder`. Setup and native build helpers reject unavailable, mismatched, or unwritable storage and symbolic-link paths; they do not fall back outside the selected folder. `MOBILE_QA_CONFIG` can select a separate non-secret local config file for isolated checks; normal users do not need it. [4]
 
-The doctor checks the release, local dependencies, selected storage, and prepared account-helper readiness. It does not build or install components, open account secrets, log in, or prove that a device is ready. Read the individual feature and helper results even if its overall status is `ready`. [4]
+The default doctor checks the release, local dependencies, selected storage, and prepared account-helper readiness. It does not build or install components, open account secrets, log in, or prove that a device is ready. Read the individual feature and helper results even if its overall status is `ready`. [4]
 
 The standalone PNG comparison CLI handles images and paths without reading the storage configuration. For a direct run, follow the [worked example](../examples/design-review/report.md#직접-비교-실행): its `verify_output` check runs inside a subshell with `set -e`, so a failed location check stops before either comparison command. Keep the selected volume available, and ask the QA agent to use a verified output location within the chosen folder as well. [2], [4]
 
 ## Usage examples
 
-In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Claude Code exposes `/mobile-qa:mobile-device-qa` and `/mobile-qa:test-accounts`. Include the project, target build/device, expected behavior, and allowed changes. Unknown details stay unknown until checked. Do not put credentials in the prompt.
+In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Claude Code exposes `/mobile-qa:mobile-device-qa` and `/mobile-qa:test-accounts`. Include the project, target build/device, expected behavior, and allowed changes. Unknown details stay unknown until checked. The hidden local dialog is the default credential entry route; values directly supplied in the current chat can also be saved through the procedure below.
 
 **Functional QA**
 
@@ -200,6 +210,12 @@ In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Clau
 **Figma design review with fixes**
 
 > Compare the candidate app with this Figma frame and version on the specified iPhone. Use the same viewport, scale, fonts, theme, content, and screen state. Find pixel differences in overlays and diff images. Fix the relevant UI code, follow this project's build/install procedure, and recapture the final changed build. Keep the Figma baseline fixed and report the first-before and final-after results.
+
+**iOS Simulator QA without agent-device**
+
+> Review this app on the specified iOS Simulator without agent-device. Navigate with existing UI tests or available screen control, and use original simctl PNGs and video for functional QA and Figma design review. If automated interaction or login is blocked, request only the necessary user action and continue available capture, comparison, and Markdown reporting. Distinguish Simulator findings from unverified items.
+
+Follow [Simulator QA](../skills/mobile-device-qa/references/simulator.md) for target selection, authentication, original capture, recording finalization, GIFs, and pixel comparison. `simctl` has no general tap or text-entry operation, so verify an actual UI-control path separately. If no automated control exists, request only necessary screen navigation and complete the report from the available evidence.
 
 **Existing-app comparison without edits**
 
@@ -213,13 +229,13 @@ In Codex, select the installed `mobile-device-qa` or `test-accounts` skill; Clau
 
 > Use test-accounts to find a staging account for this project's tester role. Show only the selected alias and readiness. Preserve an existing valid session; otherwise use the already registered sample-staging profile on the specified device and report authentication, environment verification, and cleanup separately.
 
-A login profile is a secret-free JSON contract for the app, environment, input fields, and success checks. For a supported target, guide account registration only when no stored account exists; enter actual credentials only in the dedicated local input dialog. Review and register a new app's secret-free profile within the authorized login scope. Read [test-accounts](../skills/test-accounts/SKILL.md) and the [synthetic profile example](../skills/test-accounts/examples/login-profile.example.json).
+A login profile is a secret-free JSON contract for the app, environment, input fields, and success checks. Guide account registration only when no stored account actually exists. The hidden local dialog is the default; if the user provides a new username/password in the current chat, save it through the dedicated pipe for `register --credentials-stdin`, look up the saved alias, and use it for login without requiring re-entry. Keep the values out of process arguments, environment variables, files, clipboard, and output. The tool cannot erase or guarantee non-retention in chat or host tool-input history. Follow the [chat registration procedure](../skills/test-accounts/SKILL.md#채팅으로-제공한-계정-저장과-재사용). Review and register a new app's secret-free profile within the authorized login scope. Read [test-accounts](../skills/test-accounts/SKILL.md) and the [synthetic profile example](../skills/test-accounts/examples/login-profile.example.json).
 
 `register-profile --project PROJECT --file JSON` trusts a reviewed profile; `login` requires `--login-profile NAME`. A repository file is never auto-trusted. Profiles contain metadata and selectors, not credentials, and must be explicitly re-registered after a release change.
 
-Check target support before preparing or building input tools. For a UUID-form iOS target, `login` checks the `simctl` inventory before accessing the account catalog, profile, or helper. `simulator_not_supported` or `login_target_unverified` leaves login-dependent checks pending preparation. For supported targets, prepare the needed profile and existing input tools, reusing valid tools. Retry only when the failure cause changes or a correction addresses it; if the same cause recurs, continue independent QA. Creating a new input engine, runner, or synthetic login app, or adding field masking or environment buttons to the app, is a separate development task.
+Check target support before preparing or building input tools. For a UUID-form iOS target, the dedicated `login` checks the `simctl` inventory before accessing the account catalog, profile, or helper. Resolve `login_target_unverified` or `ios_target_unverified` by verifying the exact target, and `simulator_not_booted` by checking its availability and boot state. Choose Simulator preparation or another protected path for that same target. Prepare supported targets' profiles and existing tools within the same login request. Do not impose the dedicated iOS helper's environment-button or profile requirements on other paths. Avoid repeating the same failure, but do not end login merely because preparation is missing. If no automatic path exists, request only the necessary direct input and keep the login-dependent work in `사용자 입력 대기` (waiting for user input). Confirm input has ended and fields are cleared before resuming observation, then verify authentication and the actual environment and resume the original QA. Creating a new input engine, runner, synthetic app, or app modification is a separate development task, not a login prerequisite. Follow the [login recovery procedure](../skills/test-accounts/SKILL.md#막혔을-때의-복구).
 
-iOS environment verification requires one enabled, hittable, selected button. If the current screen does not satisfy this contract, report the specific failure code without modifying the app to fit it. Even when a user supplies credentials in chat, do not pass plaintext through ordinary CUA `setValue`/`type`, `fill`, JavaScript, shell arguments, environment variables, or the clipboard. Use an existing protected input path verified for the current target; otherwise guide the user to enter credentials directly in the app. Pause screen reads, screenshots, and recording during direct user input. Do not require account re-registration. The helper does not switch environments or repeat uncertain submissions. Preserve valid authenticated sessions. [3]
+The dedicated iOS input tool requires one enabled, hittable, selected button for environment verification. If the current screen does not satisfy this contract, report the specific failure code without modifying the app to fit it. Even when a user supplies credentials in chat, do not pass plaintext through ordinary CUA `setValue`/`type`, `fill`, JavaScript, shell arguments, environment variables, or the clipboard. Use an existing protected input path verified for the current target; otherwise continue through the direct user-input recovery procedure above. Pause screen reads, screenshots, and recording during direct user input. Do not require unnecessary account re-registration. The default helper path does not switch environments or repeat uncertain submissions. A reviewed Simulator `environment_navigation` may open its fixed options screen, verify the desired selected button, and close it; only explicit `select_if_needed:true` permits selecting that desired environment before input. Preserve valid authenticated sessions. [3]
 
 ## Reading the results
 
@@ -278,7 +294,7 @@ Claude includes `mobile-qa:mobile-qa-runner`. The [Codex role](../integrations/c
 
 ## Validation and release limits
 
-Run the three isolated test groups with `python3 -B -m unittest discover -s tests`, then each skill's `tests` directory. Local validation must use a verified temporary directory within the selected storage folder and follow any additional project or host storage policy. CI uses synthetic inputs, mocked volume inspection, and temporary storage; it needs no devices, accounts, or private Library data.
+Run the three isolated test groups with `python3 -B -m unittest discover -s tests`, then each skill's `tests` directory. Test the chat registration bridge with Node.js 22 using `node --test skills/test-accounts/tests/test_chat_registration.mjs`. Local validation must use a verified temporary directory within the selected storage folder and follow any additional project or host storage policy. CI uses synthetic inputs, mocked volume inspection, and temporary storage; it needs no devices, accounts, or private Library data.
 
 ```bash
 python3 -B scripts/package.py --check

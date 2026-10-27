@@ -63,6 +63,27 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(plan["account_project"], "example.test/team/sample")
         self.assertNotIn("username", plan)
 
+    def test_navigation_profile_loads_only_for_an_ios_simulator_identifier(self):
+        navigation = {
+            "open_selector": {"identifier": "login.options"},
+            "close_selector": {"label": "Close"},
+            "open_gesture": "long_press", "select_if_needed": True,
+        }
+        self.source.write_text(json.dumps({**PROFILE, "environment_navigation": navigation}))
+        self.register()
+        plan = self.load(device="11111111-2222-4333-8444-555555555555")
+        self.assertEqual(plan["environment_navigation"], navigation)
+        self.assertEqual(plan["environment_selector"], PROFILE["environment_selector"])
+        with self.assertRaises(ValueError) as failure:
+            self.load(device="synthetic-physical-phone")
+        self.assertEqual(getattr(failure.exception, "code", None), "profile_scope_mismatch")
+
+    def test_tab_button_success_selector_survives_trusted_registration_without_widening(self):
+        selector = {"tab_button_label": "Home"}
+        self.source.write_text(json.dumps({**PROFILE, "success_selectors": [selector]}))
+        self.register()
+        self.assertEqual(self.load()["success_selectors"], [selector])
+
     def test_unregistered_and_changed_scope_fail_before_native_access(self):
         with self.assertRaises(ValueError):
             self.load()

@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "mobile-qa",
   "version": "0.2.2",
-  "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login.",
+  "description": "iOS, Android and Flutter device, Simulator and Emulator QA with reusable tests, independent pixel review, and Markdown/GIF reports.",
   "author": {
     "name": "JunyoungJung"
   },
@@ -19,7 +19,7 @@
       "onboardingSkill": "./skills/setup/SKILL.md",
       "interface": {
         "displayName": "Mobile QA",
-        "shortDescription": "Device QA, pixel comparison, and scoped test login",
+        "shortDescription": "Device and Simulator QA, pixel comparison, and scoped test login",
         "developerName": "JunyoungJung",
         "category": "Developer Tools",
         "defaultPrompt": [

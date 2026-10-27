@@ -2,6 +2,7 @@
 """프로젝트 테스트 계정 등록·검색. Author: JunyoungJung · 2026-10-20."""
 
 import argparse
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import re
@@ -9,7 +10,7 @@ import subprocess
 import sys
 
 from account_catalog import Catalog, bound_device, device_binding, project_key
-from keychain_store import Cancelled, Keychain, KeychainError, LOGIN_CODES, STORAGE_CODES
+from keychain_store import Cancelled, Keychain, KeychainError, LOGIN_CODES, STORAGE_CODES, isolated_credentials_input
 from login_plan import ProfileError, build_login_plan, register_profile
 
 
@@ -64,7 +65,50 @@ def public_record(record):
     return result
 
 
-def register(args, catalog):
+def copy_binding(args):
+    if args.device_file is None or args.download_device_file is not None or not args.capability:
+        raise ValueError("저장 계정 재사용에는 Simulator 기기 파일과 필요한 기능을 명시하세요.")
+    device = device_binding(json.loads(args.device_file.read_text()))
+    if (device is None or device["platform"] != "ios" or device["identifier"] is None
+            or re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", device["identifier"]) is None):
+        raise ValueError("계정 재사용 대상은 식별자를 명시한 iOS Simulator여야 합니다.")
+    selected = simulator_entry(device["identifier"])
+    if selected is None or selected.get("name") != device["name"]:
+        raise ValueError("현재 실행 중인 Simulator 식별자·이름을 확인하세요.")
+    return device
+
+
+def registration_input(args):
+    if args.command != "register" or not (args.credentials_stdin or args.from_account is not None):
+        return nullcontext(None)
+    if not all([args.name, args.environment, args.role]):
+        raise ValueError("파이프·저장 계정 재사용 등록에는 별칭·환경·용도를 모두 지정하세요.")
+    for value in [args.name, args.environment, args.role, *args.capability, *args.related_environment]:
+        slug(value)
+    if args.from_account is not None:
+        slug(args.from_account)
+        copy_binding(args)
+        return nullcontext(None)
+    return isolated_credentials_input()
+
+
+def registration_source(record, records, source_id):
+    source = next((item for item in records if item["id"] == source_id), None)
+    if source is None:
+        raise ValueError("재사용할 저장 계정 별칭을 찾지 못했습니다.")
+    projects = {source["project"], *source.get("related_projects", [])}
+    environments = {source["environment"], *source.get("related_environments", [])}
+    if (not {record["project"], *record["related_projects"]}.issubset(projects)
+            or not {record["environment"], *record["related_environments"]}.issubset(environments)
+            or record["role"] != source["role"]
+            or not set(record["capabilities"]).issubset(source["capabilities"])):
+        raise ValueError("재사용 계정의 프로젝트·환경·용도·기능 범위를 벗어났습니다.")
+    return record, (source["id"], source["keychain_ref"])
+
+
+def register(args, catalog, *, credentials_fd=None):
+    if args.credentials_stdin and credentials_fd is None:
+        raise ValueError("등록용 전용 파이프가 필요합니다.")
     project = project_key(args.project)
     environment = slug(args.environment or dialog("테스트 환경을 입력하세요: production / staging / development"))
     role = slug(args.role or dialog("계정 용도를 입력하세요. 예: tester / member / admin"))
@@ -73,17 +117,22 @@ def register(args, catalog):
     related_projects = sorted({project_key(path) for path in args.related_project} - {project})
     related_environments = sorted({slug(item) for item in args.related_environment} - {environment})
     device_file = args.device_file or args.download_device_file
-    device = device_binding(json.loads(device_file.read_text()) if device_file else None)
+    device = copy_binding(args) if args.from_account is not None else device_binding(json.loads(device_file.read_text()) if device_file else None)
     binding_key = "download_device" if args.download_device_file else "device_binding"
-    if any(record["id"] == account_id for record in catalog.list()):
+    records = catalog.list()
+    if any(record["id"] == account_id for record in records):
         raise ValueError("같은 별칭이 이미 있습니다. 비밀값 갱신은 update를 사용하세요.")
     record = {
         "id": account_id, "project": project, "environment": environment,
         "related_projects": related_projects, "related_environments": related_environments,
         "role": role, "capabilities": capabilities, binding_key: device,
     }
+    input_options = {"credentials_fd": credentials_fd} if args.credentials_stdin else {}
+    if args.from_account is not None:
+        record, copy_from = registration_source(record, records, slug(args.from_account))
+        input_options = {"copy_from": copy_from}
     store = Keychain()
-    with store.registration(account_id, context(record)) as persistent_ref:
+    with store.registration(account_id, context(record), **input_options) as persistent_ref:
         catalog.add({**record, "keychain_ref": persistent_ref})
     return {"status": "registered", "account": public_record(record)}
 
@@ -124,10 +173,7 @@ def matches_device(record, args):
     return registered["name"] == (args.device_name or args.device)
 
 
-def login_target_error(args):
-    if args.platform != "ios" or re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", args.device) is None:
-        return None
-    code = "login_target_unverified"
+def simulator_entry(identifier):
     try:
         result = subprocess.run(
             ["/usr/bin/xcrun", "simctl", "list", "devices", "--json"],
@@ -142,15 +188,26 @@ def login_target_error(args):
         entries = [entry for items in devices.values() for entry in items]
         if not all(isinstance(entry, dict) and isinstance(entry.get("udid"), str) for entry in entries):
             raise ValueError
-        if any(entry["udid"].lower() == args.device.lower() for entry in entries):
-            code = "simulator_not_supported"
+        matches = [entry for entry in entries if entry["udid"].lower() == identifier.lower()]
+        if len(matches) == 1 and matches[0].get("isAvailable") is True and matches[0].get("state") == "Booted":
+            return matches[0]
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
+    return None
+
+
+def login_target_error(args):
+    simulator_uuid = args.platform == "ios" and re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", args.device) is not None
+    if not simulator_uuid and not args.preflight_only:
+        return None
+    if simulator_uuid and simulator_entry(args.device) is not None:
+        return None
+    code = "login_target_unverified"
     messages = {
-        "simulator_not_supported": "현재 iOS 자동 로그인은 직접 USB 연결된 실기기만 지원합니다. Simulator 입력 도구를 새로 만들지 말고 기존 보호된 인증 경로나 사용자 직접 입력으로 진행하세요.",
-        "login_target_unverified": "iOS 로그인 대상의 종류를 확인하지 못했습니다. Xcode의 기기 목록과 대상 식별자를 확인하세요. 계정·프로필·입력 도구에는 접근하지 않았습니다.",
+        "login_target_unverified": "사용 가능한 실행 중 iOS Simulator 대상을 확인하지 못했습니다. Xcode의 기기 목록과 대상 식별자를 확인하세요. 계정·프로필·입력 도구에는 접근하지 않았습니다.",
     }
-    return {"status": "not_ready", "code": code, "environment_verified": False, "message": messages[code]}
+    result = {"status": "not_ready", "code": code, "environment_verified": False, "message": messages[code]}
+    return {**result, "preflight_only": True} if args.preflight_only else result
 
 
 def login(args, catalog):
@@ -177,10 +234,16 @@ def login(args, catalog):
         return {"status": "ambiguous", "candidates": [record["id"] for record in candidates]}
 
     record = candidates[0]
-    response = Keychain().login(record, plan)
+    input_options = {"preflight_only": True} if args.preflight_only else {}
+    response = Keychain().login(record, plan, **input_options)
     statuses = {"authenticated", "already_authenticated", "not_ready", "failed", "uncertain", "error"}
+    if args.preflight_only:
+        statuses = {"ready", "already_authenticated", "error", "uncertain"}
     if not isinstance(response, dict) or response.get("status") not in statuses:
         raise KeychainError("로그인 도구 응답 형식이 올바르지 않습니다.")
+    if args.preflight_only and ((response["status"] == "ready" and response.get("environment_verified") is not True)
+                               or (response["status"] == "already_authenticated" and response.get("environment_verified") is not False)):
+        raise KeychainError("로그인 준비 확인 응답의 환경 증거가 올바르지 않습니다.")
     if response["status"] == "already_authenticated" and response.get("environment_verified") is True:
         raise KeychainError("기존 로그인 세션의 서버 환경은 자동 검증할 수 없습니다.")
     result = {"status": response["status"], "account": record["id"]}
@@ -202,11 +265,14 @@ def login(args, catalog):
 def parser():
     result = SafeParser(description="이 Mac의 로컬 저장소에 테스트 계정 등록·메타데이터 검색. 비밀값을 출력하지 않습니다.")
     sub = result.add_subparsers(dest="command", required=True, parser_class=SafeParser)
-    add = sub.add_parser("register", help="로컬 보안 입력 창으로 새 계정 등록")
+    add = sub.add_parser("register", help="로컬 보안 입력 창 또는 명시적인 전용 파이프로 새 계정 등록")
     add.add_argument("--project", type=Path, default=Path.cwd())
     add.add_argument("--name")
     add.add_argument("--environment")
     add.add_argument("--role")
+    source = add.add_mutually_exclusive_group()
+    source.add_argument("--credentials-stdin", action="store_true", help="대화에서 받은 계정을 네이티브 도구의 전용 파이프로 저장; 별칭·환경·용도 필수")
+    source.add_argument("--from-account", help="허용한 기존 계정을 원문 노출 없이 새 별칭에 저장; 별칭·환경·용도 필수")
     add.add_argument("--capability", action="append", default=[])
     add.add_argument("--related-project", type=Path, action="append", default=[])
     add.add_argument("--related-environment", action="append", default=[])
@@ -230,53 +296,62 @@ def parser():
     profile = sub.add_parser("register-profile", help="검토한 비밀 없는 로그인 프로필을 현재 프로젝트에 명시적으로 신뢰 등록")
     profile.add_argument("--project", type=Path, required=True)
     profile.add_argument("--file", type=Path, required=True)
-    sign_in = sub.add_parser("login", help="선택한 계정으로 확인된 실기기 앱에 보안 로그인")
+    sign_in = sub.add_parser("login", help="선택한 계정으로 확인된 실기기 또는 Simulator 앱에 보안 로그인")
     sign_in.add_argument("--project", type=Path, required=True)
     sign_in.add_argument("--environment", required=True)
     sign_in.add_argument("--role", required=True)
     sign_in.add_argument("--capability", action="append", default=[])
     sign_in.add_argument("--platform", choices=["ios", "android"], required=True)
-    sign_in.add_argument("--device", required=True, help="현재 실기기의 정확한 물리 식별자")
+    sign_in.add_argument("--device", required=True, help="현재 대상의 정확한 물리 식별자 또는 Simulator UUID")
     sign_in.add_argument("--device-name", help="저장된 계정 귀속 기기의 정확한 이름")
     sign_in.add_argument("--account", help="조회 범위 안에서 사용할 계정 별칭")
     sign_in.add_argument("--app-id", help="신뢰할 수 있는 호출자가 확인한 허용 앱 식별자")
     sign_in.add_argument("--login-profile", required=True, help="현재 프로젝트에 명시적으로 등록한 프로필 이름")
+    sign_in.add_argument("--preflight-only", action="store_true", help="실행 중 iOS Simulator의 준비·기존 세션만 확인; 계정 원문 읽기·로그인 제출 없음")
     return result
 
 
 def main(argv=None):
     try:
         args = parser().parse_args(argv)
-        if args.command == "register-profile":
-            result = register_profile(args.project, args.file)
+        with registration_input(args) as credentials_fd:
+            if args.command == "register-profile":
+                result = register_profile(args.project, args.file)
+                print(json.dumps(result, ensure_ascii=False))
+                return 0
+            if args.command == "login":
+                target_error = login_target_error(args)
+                if target_error is not None:
+                    print(json.dumps(target_error, ensure_ascii=False))
+                    return 1
+            catalog = Catalog()
+            if args.command == "register":
+                result = register(args, catalog, credentials_fd=credentials_fd)
+            elif args.command == "update":
+                result = update(args, catalog)
+            elif args.command == "login":
+                result = login(args, catalog)
+                if args.preflight_only:
+                    result = {**result, "preflight_only": True}
+            elif args.command in {"check", "migrate-keychain"}:
+                result = storage_summary(args, catalog)
+            elif args.command == "find":
+                result = catalog.find(project_key(args.project), slug(args.environment), slug(args.role), [slug(item) for item in args.capability], device=args.device, platform=args.platform)
+                result = {**result, "candidates": [public_record(item) for item in result["candidates"]]}
+            else:
+                result = {"accounts": [public_record(item) for item in catalog.list(project_key(args.project) if args.project else None)]}
             print(json.dumps(result, ensure_ascii=False))
+            if args.command == "login":
+                if args.preflight_only:
+                    return 0 if (
+                        (result["status"] == "ready" and result.get("environment_verified") is True)
+                        or (result["status"] == "already_authenticated" and result.get("environment_verified") is False)
+                    ) else 1
+                return 0 if (
+                    result["status"] == "authenticated"
+                    and result.get("environment_verified") is True
+                ) else 1
             return 0
-        if args.command == "login":
-            target_error = login_target_error(args)
-            if target_error is not None:
-                print(json.dumps(target_error, ensure_ascii=False))
-                return 1
-        catalog = Catalog()
-        if args.command == "register":
-            result = register(args, catalog)
-        elif args.command == "update":
-            result = update(args, catalog)
-        elif args.command == "login":
-            result = login(args, catalog)
-        elif args.command in {"check", "migrate-keychain"}:
-            result = storage_summary(args, catalog)
-        elif args.command == "find":
-            result = catalog.find(project_key(args.project), slug(args.environment), slug(args.role), [slug(item) for item in args.capability], device=args.device, platform=args.platform)
-            result = {**result, "candidates": [public_record(item) for item in result["candidates"]]}
-        else:
-            result = {"accounts": [public_record(item) for item in catalog.list(project_key(args.project) if args.project else None)]}
-        print(json.dumps(result, ensure_ascii=False))
-        if args.command == "login":
-            return 0 if (
-                result["status"] == "authenticated"
-                and result.get("environment_verified") is True
-            ) else 1
-        return 0
     except Cancelled:
         print(json.dumps({"status": "cancelled"}))
         return 2

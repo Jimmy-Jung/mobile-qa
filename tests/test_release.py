@@ -96,6 +96,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('README.md', inventory['files'])
         self.assertIn('README.en.md', inventory['files'])
 
+    def test_chat_registration_modules_are_packaged_and_hash_checked(self):
+        path = self.root / 'skills/test-accounts/scripts/chat_registration.mjs'
+        path.parent.mkdir(parents=True)
+        path.write_text('export const fixture = "synthetic";\n')
+        inventory = release.write_inventory(self.root)
+        self.assertIn(path.relative_to(self.root).as_posix(), inventory['files'])
+        path.write_text('export const fixture = "changed";\n')
+        with self.assertRaises(ValueError):
+            release.verify_release(self.root)
+
     def test_unknown_and_private_files_are_rejected(self):
         for name in ["credentials.json", "accounts.json", "image.png", "state.txt"]:
             with self.subTest(name=name):

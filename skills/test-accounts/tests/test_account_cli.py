@@ -20,6 +20,16 @@ NEW_RECORD = {**{key: value for key, value in RECORD.items() if key != "download
 
 class AccountCLITests(unittest.TestCase):
     def setUp(self):
+        self.copy_folder = tempfile.TemporaryDirectory(prefix="account-copy-cli-")
+        self.addCleanup(self.copy_folder.cleanup)
+        self.copy_device = {"platform": "ios", "name": "Synthetic Simulator",
+                            "identifier": "11111111-2222-3333-4444-AAAAAAAAAAAA"}
+        self.copy_file = Path(self.copy_folder.name) / "device.json"
+        self.copy_file.write_text(json.dumps(self.copy_device))
+        self.simulator_inventory = {"devices": {"runtime": [{
+            "udid": self.copy_device["identifier"], "name": self.copy_device["name"],
+            "isAvailable": True, "state": "Booted",
+        }]}}
         self.catalog = Mock()
         self.catalog.list.return_value = []
         self.keychain = Mock()
@@ -32,6 +42,8 @@ class AccountCLITests(unittest.TestCase):
             patch.object(cli, "project_key", return_value="example.test/team/app"),
             patch.object(cli, "dialog", side_effect=["staging", "student", "sample-student"]),
             patch.object(cli, "build_login_plan", side_effect=lambda project, environment, platform, device, **options: {"device": device, "environment": environment, "app_id": options["app_id"] or "org.example.sample", "environment_selector": {"label": "Staging"}}),
+            patch.object(cli, "isolated_credentials_input", return_value=contextlib.nullcontext(55)),
+            patch.object(cli.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(self.simulator_inventory))),
         ]
         self.mocks = [item.start() for item in self.patches]
         self.addCleanup(lambda: [item.stop() for item in reversed(self.patches)])
@@ -47,6 +59,10 @@ class AccountCLITests(unittest.TestCase):
 
     def register_args(self):
         return ["register", "--name", "sample-student", "--environment", "staging", "--role", "student"]
+
+    def copy_args(self, *extra):
+        return self.register_args() + ["--from-account", "source-student", "--device-file", str(self.copy_file),
+                                       "--capability", "ios", *extra]
 
     def test_canonical_device_file_registers_and_redacts_generic_binding(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -80,6 +96,200 @@ class AccountCLITests(unittest.TestCase):
         self.keychain.registration.assert_called_once_with("sample-student", cli.context(RECORD))
         self.catalog.add.assert_called_once_with(NEW_RECORD)
         self.mocks[3].assert_not_called()
+
+    def test_explicit_pipe_registration_uses_native_input_without_reentry(self):
+        code, result = self.run_cli(self.register_args() + ["--credentials-stdin"])
+        self.assertEqual((code, result["status"]), (0, "registered"))
+        self.keychain.registration.assert_called_once_with(
+            "sample-student", cli.context(RECORD), credentials_fd=55,
+        )
+        self.catalog.add.assert_called_once_with(NEW_RECORD)
+        self.mocks[3].assert_not_called()
+
+    def test_copy_registration_reuses_native_reference_and_preserves_source_binding(self):
+        original_binding = {"platform": "ios", "name": "Original device", "identifier": "original-device"}
+        source = {**RECORD, "id": "source-student", "capabilities": ["ios", "playback"],
+                  "download_device": original_binding}
+        self.catalog.list.return_value = [source]
+        code, result = self.run_cli(self.copy_args("--capability", "playback"))
+        self.assertEqual((code, result["status"]), (0, "registered"))
+        saved = self.catalog.add.call_args.args[0]
+        self.assertEqual(saved["capabilities"], source["capabilities"])
+        self.assertEqual(saved["device_binding"], self.copy_device)
+        self.assertEqual(source["download_device"], original_binding)
+        self.keychain.registration.assert_called_once_with(
+            "sample-student", cli.context(saved), copy_from=("source-student", REF),
+        )
+        self.mocks[3].assert_not_called()
+        self.mocks[5].assert_not_called()
+
+    def test_copy_registration_accepts_only_source_projects_environments_role_and_capabilities(self):
+        source = {**RECORD, "id": "source-student", "project": "example.test/team/other",
+                  "environment": "production", "related_projects": [RECORD["project"]],
+                  "related_environments": ["staging"], "capabilities": ["ios", "playback"]}
+        self.catalog.list.return_value = [source]
+        code, _ = self.run_cli(self.copy_args("--capability", "playback"))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.catalog.add.call_args.args[0]["capabilities"], ["ios", "playback"])
+        self.keychain.registration.reset_mock()
+        self.catalog.add.reset_mock()
+        for changes in [
+            {"related_projects": []}, {"related_environments": []}, {"role": "other"},
+            {"capabilities": []},
+        ]:
+            with self.subTest(changes=list(changes)):
+                self.catalog.list.return_value = [{**source, **changes}]
+                code, result = self.run_cli(self.copy_args("--capability", "playback"))
+                self.assertEqual((code, result["status"]), (1, "error"))
+        self.keychain.registration.assert_not_called()
+        self.catalog.add.assert_not_called()
+
+    def test_copy_registration_rejects_expanding_related_scopes_and_missing_source(self):
+        self.catalog.list.return_value = [{**RECORD, "id": "source-student", "capabilities": ["ios"]}]
+        for extra in [["--related-environment", "production"], ["--from-account", "missing"]]:
+            code, result = self.run_cli(self.copy_args(*extra))
+            self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[2].side_effect = [RECORD["project"], "example.test/unrelated/project"]
+        code, result = self.run_cli(self.copy_args("--related-project", "/other"))
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.keychain.registration.assert_not_called()
+
+    def test_copy_registration_requires_metadata_and_cannot_overwrite_or_mix_pipe_input(self):
+        for option in ["--name", "--environment", "--role"]:
+            args = self.register_args()
+            index = args.index(option)
+            del args[index:index + 2]
+            code, result = self.run_cli(args + ["--from-account", "source-student"])
+            self.assertEqual((code, result["status"]), (1, "error"))
+        code, result = self.run_cli(self.register_args() + ["--from-account", "source-student", "--credentials-stdin"])
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.catalog.list.return_value = [RECORD]
+        code, result = self.run_cli(self.copy_args("--from-account", RECORD["id"]))
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.keychain.registration.assert_not_called()
+        self.mocks[3].assert_not_called()
+        self.mocks[5].assert_not_called()
+
+    def test_copy_registration_catalog_failure_rolls_back_new_item_only(self):
+        self.catalog.list.return_value = [{**RECORD, "id": "source-student", "capabilities": ["ios"]}]
+        self.catalog.add.side_effect = OSError("password-sentinel")
+        code, result = self.run_cli(self.copy_args())
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.assertIs(self.registration.__exit__.call_args.args[0], OSError)
+        self.mocks[3].assert_not_called()
+
+    def test_copy_registration_rejects_unbound_non_ios_invalid_uuid_and_name_mismatch_before_catalog(self):
+        for binding in [None, {**self.copy_device, "platform": "android"},
+                        {**self.copy_device, "identifier": None}, {**self.copy_device, "identifier": "physical-device"},
+                        {**self.copy_device, "name": "Another Simulator"}]:
+            with self.subTest(binding=binding):
+                self.copy_file.write_text(json.dumps(binding))
+                code, result = self.run_cli(self.copy_args())
+                self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[0].assert_not_called()
+        self.mocks[1].assert_not_called()
+        self.mocks[3].assert_not_called()
+
+    def test_copy_registration_requires_explicit_capabilities_and_available_booted_target(self):
+        for args in [self.register_args() + ["--from-account", "source-student"],
+                     self.register_args() + ["--from-account", "source-student", "--device-file", str(self.copy_file)]]:
+            code, result = self.run_cli(args)
+            self.assertEqual((code, result["status"]), (1, "error"))
+        for state in ["Shutdown", "Booted"]:
+            entry = {"udid": self.copy_device["identifier"], "name": self.copy_device["name"],
+                     "isAvailable": state != "Booted", "state": state}
+            self.mocks[6].return_value = Mock(returncode=0, stdout=json.dumps({"devices": {"runtime": [entry]}}))
+            code, result = self.run_cli(self.copy_args())
+            self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[0].assert_not_called()
+        self.mocks[1].assert_not_called()
+
+    def test_pipe_input_is_isolated_before_catalog_or_project_subprocesses(self):
+        state = {"isolated": False}
+
+        @contextlib.contextmanager
+        def isolation():
+            state["isolated"] = True
+            try:
+                yield 55
+            finally:
+                state["isolated"] = False
+
+        def check_catalog():
+            self.assertTrue(state["isolated"])
+            return self.catalog
+
+        def check_project(path):
+            self.assertTrue(state["isolated"])
+            return "example.test/team/app"
+
+        self.mocks[5].side_effect = isolation
+        self.mocks[0].side_effect = check_catalog
+        self.mocks[2].side_effect = check_project
+        code, result = self.run_cli(self.register_args() + ["--credentials-stdin"])
+        self.assertEqual((code, result["status"]), (0, "registered"))
+        self.assertFalse(state["isolated"])
+
+    def test_pipe_registration_requires_all_metadata_before_native_input(self):
+        for option in ["--name", "--environment", "--role"]:
+            arguments = self.register_args()
+            index = arguments.index(option)
+            del arguments[index:index + 2]
+            with self.subTest(option=option):
+                code, result = self.run_cli(arguments + ["--credentials-stdin"])
+                self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[1].assert_not_called()
+        self.mocks[3].assert_not_called()
+        self.catalog.add.assert_not_called()
+        self.mocks[5].assert_not_called()
+
+    def test_pipe_registration_rejects_bad_metadata_and_existing_alias_before_input(self):
+        for extra in [["--name", "password-sentinel!"], ["--capability", "invalid!"]]:
+            with self.subTest(option=extra[0]):
+                code, result = self.run_cli(self.register_args() + ["--credentials-stdin", *extra])
+                self.assertEqual((code, result["status"]), (1, "error"))
+        self.catalog.list.return_value = [RECORD]
+        code, result = self.run_cli(self.register_args() + ["--credentials-stdin"])
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[1].assert_not_called()
+        self.mocks[3].assert_not_called()
+
+    def test_pipe_registration_reuses_alias_for_find_and_protected_login(self):
+        self.catalog.add.side_effect = lambda record: setattr(self.catalog.list, "return_value", [record])
+        self.catalog.find.side_effect = lambda *args, **kwargs: {
+            "status": "selected", "candidates": self.catalog.list.return_value,
+        }
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        code, _ = self.run_cli(self.register_args() + ["--credentials-stdin"])
+        self.assertEqual(code, 0)
+        code, found = self.run_cli(["find", "--environment", "staging", "--role", "student"])
+        self.assertEqual((code, found["candidates"][0]["id"]), (0, "sample-student"))
+        code, signed_in = self.run_cli([
+            "login", "--project", "/project", "--environment", "staging", "--role", "student",
+            "--platform", "android", "--device", "synthetic-device", "--login-profile", "sample",
+            "--account", "sample-student",
+        ])
+        self.assertEqual((code, signed_in["status"], signed_in["account"]),
+                         (0, "authenticated", "sample-student"))
+        self.keychain.login.assert_called_once()
+        self.assertEqual(self.keychain.login.call_args.args[0], NEW_RECORD)
+        self.mocks[3].assert_not_called()
+
+    def test_pipe_registration_catalog_failure_uses_existing_rollback(self):
+        self.catalog.add.side_effect = OSError("password-sentinel")
+        code, result = self.run_cli(self.register_args() + ["--credentials-stdin"])
+        self.assertEqual((code, result["status"]), (1, "error"))
+        self.assertIs(self.registration.__exit__.call_args.args[0], OSError)
+        self.mocks[3].assert_not_called()
+
+    def test_pipe_input_is_not_enabled_for_update_or_raw_arguments(self):
+        for arguments in [["update", "sample-student", "--credentials-stdin"],
+                          self.register_args() + ["--credentials-stdin", "--password", "password-sentinel"]]:
+            with self.subTest(command=arguments[0]):
+                code, result = self.run_cli(arguments)
+                self.assertEqual((code, result["status"]), (1, "error"))
+        self.mocks[0].assert_not_called()
+        self.mocks[1].assert_not_called()
 
     def test_missing_metadata_prompts_only_for_metadata(self):
         code, _ = self.run_cli(["register"])
@@ -249,18 +459,41 @@ class AccountCLITests(unittest.TestCase):
         self.mocks[2].return_value = "example.test/team/ios-app"
         return {**RECORD, "id": identifier, "project": self.mocks[2].return_value, "environment": "production", "role": "learner", **changes}
 
-    def test_simulator_is_rejected_before_catalog_profile_or_helper_access(self):
+    def test_unavailable_simulator_is_rejected_before_catalog_profile_or_helper_access(self):
         device = "11111111-2222-3333-4444-AAAAAAAAAAAA"
         inventory = {"devices": {"runtime": [{"udid": device, "isAvailable": False}]}}
         with patch.object(cli.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(inventory))) as run:
             code, result = self.run_cli(self.login_args("--device", device.lower()))
-        self.assertEqual((code, result["status"], result["code"]), (1, "not_ready", "simulator_not_supported"))
+        self.assertEqual((code, result["status"], result["code"]), (1, "not_ready", "login_target_unverified"))
         self.assertFalse(result["environment_verified"])
         self.assertNotIn(device.lower(), json.dumps(result))
         self.assertEqual(run.call_args.args[0], ["/usr/bin/xcrun", "simctl", "list", "devices", "--json"])
         self.assertEqual(run.call_args.kwargs["timeout"], 10)
         for index in [0, 1, 2, 4]:
             self.mocks[index].assert_not_called()
+
+    def test_exact_available_booted_simulator_is_allowed_to_use_protected_login(self):
+        device = "11111111-2222-3333-4444-AAAAAAAAAAAA"
+        inventory = {"devices": {"runtime": [{"udid": device, "isAvailable": True, "state": "Booted"}]}}
+        self.catalog.find.return_value = {"candidates": [self.login_record()]}
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": True}
+        with patch.object(cli.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(inventory))):
+            code, result = self.run_cli(self.login_args("--device", device.lower()))
+        self.assertEqual((code, result["status"]), (0, "authenticated"))
+        self.keychain.login.assert_called_once()
+
+    def test_simulator_inventory_must_identify_one_available_booted_target(self):
+        device = "11111111-2222-3333-4444-AAAAAAAAAAAA"
+        base = {"udid": device, "isAvailable": True, "state": "Booted"}
+        for entries in [[{**base, "state": "Shutdown"}], [{**base, "isAvailable": False}],
+                        [{"udid": device}], [base, base]]:
+            with self.subTest(entries=entries):
+                inventory = {"devices": {"runtime": entries}}
+                with patch.object(cli.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(inventory))):
+                    code, result = self.run_cli(self.login_args("--device", device))
+                self.assertEqual((code, result["code"]), (1, "login_target_unverified"))
+        self.mocks[0].assert_not_called()
+        self.mocks[1].assert_not_called()
 
     def test_unverified_uuid_target_fails_without_exposing_inventory_or_retrying(self):
         device = "11111111-2222-3333-4444-AAAAAAAAAAAA"

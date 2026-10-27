@@ -46,6 +46,8 @@ struct SecureLoginFailure: Error { let code: String }
 private enum DriverPins {
   nonisolated(unsafe) static var iosDeveloperDirectory: String?
   nonisolated(unsafe) static var iosXcodeBuildSHA256: String?
+  static let iosSimulatorDeveloperDirectory: String? = nil
+  static let iosSimulatorXcodeBuildSHA256: String? = nil
 }
 private enum LoginChild {
 ''' + environment + r'''

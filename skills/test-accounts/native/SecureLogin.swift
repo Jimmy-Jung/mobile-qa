@@ -32,6 +32,16 @@ struct SecureLoginRequest {
         }
         return Self(id: id, reference: reference, plan: try LoginPlan(metadata))
     }
+
+    static func readPreflightPlan() throws -> LoginPlan {
+        var pending = Data()
+        let bytes = try SecureIO.line(STDIN_FILENO, pending: &pending, limit: 65536, deadline: SecureIO.now + 30)
+        guard let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              Set(object.keys) == ["plan"], let metadata = object["plan"] as? [String: Any] else {
+            throw SecureLoginFailure(code: "invalid_login_request")
+        }
+        return try LoginPlan(metadata)
+    }
 }
 
 struct LoginPlan {
@@ -46,7 +56,8 @@ struct LoginPlan {
         "username_selector", "password_selector", "submit_selector", "environment_selector", "success_selectors", "timeout_ms"]
 
     init(_ object: [String: Any]) throws {
-        let keys = Self.profileKeys.subtracting(["schema_version", "name"]).union(["device", "project_key", "account_project", "trust"])
+        var keys = Self.profileKeys.subtracting(["schema_version", "name"]).union(["device", "project_key", "account_project", "trust"])
+        if object["environment_navigation"] != nil { keys.insert("environment_navigation") }
         guard Set(object.keys) == keys,
               let device = object["device"] as? String, Self.token(device, maximum: 256, colon: true),
               let project = object["project_key"] as? String,
@@ -117,7 +128,9 @@ struct LoginPlan {
     }
 
     static func validProfile(_ profile: [String: Any]) -> Bool {
-        guard Set(profile.keys) == profileKeys, integer(profile["schema_version"]) == 1,
+        var expectedKeys = profileKeys
+        if profile["environment_navigation"] != nil { expectedKeys.insert("environment_navigation") }
+        guard Set(profile.keys) == expectedKeys, integer(profile["schema_version"]) == 1,
               let platform = profile["platform"] as? String, ["ios", "android"].contains(platform),
               let app = profile["app_id"] as? String, app.utf8.count <= 200,
               app.range(of: #"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)+\z"#, options: .regularExpression) != nil,
@@ -131,9 +144,20 @@ struct LoginPlan {
             selectors.append(selector)
         }
         selectors += success
+        if let navigation = profile["environment_navigation"] {
+            guard platform == "ios", let object = navigation as? [String: Any],
+                  Set(object.keys) == ["open_selector", "close_selector", "open_gesture", "select_if_needed"],
+                  let gesture = object["open_gesture"] as? String, ["tap", "long_press"].contains(gesture),
+                  let selection = object["select_if_needed"] as? NSNumber,
+                  CFGetTypeID(selection) == CFBooleanGetTypeID(),
+                  let open = object["open_selector"] as? [String: String],
+                  let close = object["close_selector"] as? [String: String] else { return false }
+            selectors += [open, close]
+        }
         for (index, selector) in selectors.enumerated() {
             guard selector.count == 1, let (key, value) = selector.first,
                   ((platform == "ios" ? ["identifier", "label", "placeholder"] : ["identifier", "label"]).contains(key)
+                    || (key == "tab_button_label" && platform == "ios" && index >= 4 && index < 4 + success.count)
                     || (key == "type" && ((index == 0 && value == "textField") || (index == 1 && value == "secureTextField")))),
                   !value.isEmpty, value.utf8.count <= 256,
                   !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
@@ -225,10 +249,10 @@ final class LoginChild {
     private let output = Pipe()
     private var pending = Data()
 
-    init(path: String, arguments: [String], temporaryDirectory: String, discardOutput: Bool = false) throws {
+    init(path: String, arguments: [String], temporaryDirectory: String, discardOutput: Bool = false, simulator: Bool = false) throws {
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments
-        process.environment = try Self.childEnvironment(path: path, temporaryDirectory: temporaryDirectory)
+        process.environment = try Self.childEnvironment(path: path, temporaryDirectory: temporaryDirectory, simulator: simulator)
         process.standardInput = input
         process.standardOutput = discardOutput ? FileHandle.nullDevice : output
         process.standardError = FileHandle.nullDevice
@@ -237,10 +261,12 @@ final class LoginChild {
         try output.fileHandleForWriting.close()
     }
 
-    static func childEnvironment(path: String, temporaryDirectory: String) throws -> [String: String] {
+    static func childEnvironment(path: String, temporaryDirectory: String, simulator: Bool = false) throws -> [String: String] {
         var environment = ["PATH": "/usr/bin:/bin", "HOME": NSHomeDirectory(), "TMPDIR": temporaryDirectory]
         if ["/usr/bin/xcrun", "/usr/bin/xcodebuild"].contains(path) {
-            guard let developer = DriverPins.iosDeveloperDirectory, let expected = DriverPins.iosXcodeBuildSHA256,
+            let selectedDeveloper = simulator ? DriverPins.iosSimulatorDeveloperDirectory ?? DriverPins.iosDeveloperDirectory : DriverPins.iosDeveloperDirectory
+            let selectedHash = simulator ? DriverPins.iosSimulatorXcodeBuildSHA256 ?? DriverPins.iosXcodeBuildSHA256 : DriverPins.iosXcodeBuildSHA256
+            guard let developer = selectedDeveloper, let expected = selectedHash,
                   expected.range(of: #"^[a-f0-9]{64}$"#, options: .regularExpression) != nil else {
                 throw SecureLoginFailure(code: "ios_not_prepared")
             }
@@ -317,11 +343,12 @@ enum SecureLogin {
         "login_elements_not_unique", "password_input_failed", "screen_unavailable", "self_check_failed", "submit_failed",
         "tree_limit", "unsafe_login_fields", "unsafe_submit", "unsupported_sdk", "username_input_failed", "wrong_app"]
 
-    static func run(_ plan: LoginPlan, credentials: () throws -> Data) throws -> [String: Any] {
+    static func run(_ plan: LoginPlan, preflightOnly: Bool = false, credentials: () throws -> Data) throws -> [String: Any] {
         do {
             try verifyStorage()
+            guard !preflightOnly || plan.platform == "ios" else { throw SecureLoginFailure(code: "invalid_login_plan") }
             if plan.platform == "android" { return try android(plan, credentials: credentials) }
-            return try ios(plan, credentials: credentials)
+            return try ios(plan, preflightOnly: preflightOnly, credentials: credentials)
         } catch let error as SecureLoginFailure {
             throw error
         } catch {
@@ -483,7 +510,14 @@ enum SecureLogin {
         return result
     }
 
-    private static func ios(_ plan: LoginPlan, credentials: () throws -> Data) throws -> [String: Any] {
+    private static func ios(_ plan: LoginPlan, preflightOnly: Bool = false, credentials: () throws -> Data) throws -> [String: Any] {
+        if try SimulatorConnection.isSimulator(device: plan.device) {
+            return try iosSimulator(plan, preflightOnly: preflightOnly, credentials: credentials)
+        }
+        guard !preflightOnly else { throw SecureLoginFailure(code: "invalid_login_plan") }
+        guard plan.metadata["environment_navigation"] == nil else {
+            throw SecureLoginFailure(code: "invalid_login_plan")
+        }
         guard let source = DriverPins.iosXCTestRunPath, let root = DriverPins.iosRunnerRoot,
               let expected = DriverPins.iosRunnerTreeSHA256 else {
             throw SecureLoginFailure(code: "ios_not_prepared")
@@ -500,13 +534,14 @@ enum SecureLogin {
             throw SecureLoginFailure(code: "runner_busy")
         }
         try runnerInventory(device: plan.device)
+        return try PrivateIOSRun.perform(root: DriverPins.workRoot) { artifacts in
         let nonce = UUID().uuidString
         let listenerToken = UUID().uuidString
-        let privateRun = try temporaryTestRun(source: source, nonce: nonce, listenerToken: listenerToken)
-        defer { try? FileManager.default.removeItem(atPath: privateRun) }
+        let privateRun = try temporaryTestRun(source: source, nonce: nonce, listenerToken: listenerToken, destination: artifacts.runfile)
+        try artifacts.requireFreshResult()
         let child = try LoginChild(path: "/usr/bin/xcodebuild", arguments: ["test-without-building", "-xctestrun", privateRun,
-            "-destination", "id=\(plan.device)", "-quiet", "-derivedDataPath", DriverPins.workRoot + "/IOSRuntime",
-            "-resultBundlePath", privateRun + ".xcresult"],
+            "-destination", "id=\(plan.device)", "-quiet", "-derivedDataPath", artifacts.derivedData,
+            "-resultBundlePath", artifacts.resultBundle],
             temporaryDirectory: DriverPins.workRoot + "/tmp/", discardOutput: true)
         do {
             let outcome = try iosSession(plan, deviceID: muxID, nonce: nonce, listenerToken: listenerToken, child: child, credentials: credentials)
@@ -515,10 +550,55 @@ enum SecureLogin {
             let code = (error as? SecureLoginFailure)?.code ?? "secure_login_failed"
             return finishIOS(["status": "error", "code": code], deviceID: muxID, child: child)
         }
+        }
     }
 
-    private static func iosSession(_ plan: LoginPlan, deviceID: Int, nonce: String, listenerToken: String, child: LoginChild,
-                                    credentials: () throws -> Data) throws -> [String: Any] {
+    private static func iosSimulator(_ plan: LoginPlan, preflightOnly: Bool = false, credentials: () throws -> Data) throws -> [String: Any] {
+        guard let source = DriverPins.iosSimulatorXCTestRunPath, let root = DriverPins.iosSimulatorRunnerRoot,
+              let expected = DriverPins.iosSimulatorRunnerTreeSHA256 else {
+            throw SecureLoginFailure(code: "ios_not_prepared")
+        }
+        try verifyTree(root, expected: expected)
+        guard source.hasPrefix(root + "/") else { throw SecureLoginFailure(code: "driver_not_trusted") }
+        let lock = Darwin.open(DriverPins.workRoot + "/iOSSimulatorRunner.lock", O_RDWR | O_CREAT | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        guard lock >= 0 else { throw SecureLoginFailure(code: "runner_ownership_unavailable") }
+        defer { _ = close(lock) }
+        guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw SecureLoginFailure(code: "runner_busy") }
+        defer { _ = flock(lock, LOCK_UN) }
+        try runnerInventory(device: plan.device, simulator: true)
+        guard try !SimulatorConnection.listenerPresent(deadline: SecureIO.now + 2) else {
+            throw SecureLoginFailure(code: "runner_busy")
+        }
+        let appIdentity = try SimulatorConnection.appIdentity(device: plan.device, appID: plan.appID)
+        return try PrivateIOSRun.perform(root: DriverPins.workRoot) { artifacts in
+        let nonce = UUID().uuidString
+        let listenerToken = UUID().uuidString
+        let privateRun = try temporaryTestRun(source: source, nonce: nonce, listenerToken: listenerToken, destination: artifacts.runfile)
+        try artifacts.requireFreshResult()
+        let child = try LoginChild(path: "/usr/bin/xcodebuild", arguments: ["test-without-building", "-xctestrun", privateRun,
+            "-destination", "platform=iOS Simulator,id=\(plan.device)", "-quiet", "-derivedDataPath", artifacts.derivedData,
+            "-resultBundlePath", artifacts.resultBundle],
+            temporaryDirectory: DriverPins.workRoot + "/tmp/", discardOutput: true, simulator: true)
+        var trustedRunnerPID: Int32?
+        do {
+            let outcome = try iosSession(plan, deviceID: nil, nonce: nonce, listenerToken: listenerToken, child: child,
+                credentials: credentials, preflightOnly: preflightOnly, appIdentity: appIdentity, onTrustedRunner: {
+                    if trustedRunnerPID == nil {
+                        trustedRunnerPID = try SimulatorConnection.appProcessID(device: plan.device, appID: SimulatorConnection.runnerBundle)
+                    }
+                })
+            return finishSimulator(outcome, device: plan.device, child: child, trustedRunnerPID: trustedRunnerPID)
+        } catch {
+            let code = (error as? SecureLoginFailure)?.code ?? "secure_login_failed"
+            return finishSimulator(["status": "error", "code": code], device: plan.device, child: child, trustedRunnerPID: trustedRunnerPID)
+        }
+        }
+    }
+
+    private static func iosSession(_ plan: LoginPlan, deviceID: Int?, nonce: String, listenerToken: String, child: LoginChild,
+                                    credentials: () throws -> Data, preflightOnly: Bool = false, appIdentity: SimulatorConnection.AppIdentity? = nil,
+                                    onTrustedRunner: () throws -> Void = {}) throws -> [String: Any] {
+        guard !preflightOnly || deviceID == nil else { throw SecureLoginFailure(code: "invalid_login_plan") }
         let startupDeadline = SecureIO.now + 120
         var prepared: [String: Any]?
         var activated = false
@@ -526,11 +606,13 @@ enum SecureLogin {
             do {
                 prepared = try iosRequest(plan, deviceID: deviceID, nonce: nonce, listenerToken: listenerToken, action: "preflight", secret: nil,
                                           deadline: min(startupDeadline, SecureIO.now + 5))
+                try onTrustedRunner()
                 if prepared?["code"] as? String == "APP_NOT_FOREGROUND", !activated {
                     activated = true
-                    let activation = try LoginChild(path: "/usr/bin/xcrun", arguments: ["devicectl", "device", "process",
-                        "launch", "--device", plan.device, plan.appID], temporaryDirectory: DriverPins.workRoot + "/tmp/",
-                        discardOutput: true)
+                    let arguments = deviceID == nil ? ["simctl", "launch", plan.device, plan.appID]
+                        : ["devicectl", "device", "process", "launch", "--device", plan.device, plan.appID]
+                    let activation = try LoginChild(path: "/usr/bin/xcrun", arguments: arguments,
+                        temporaryDirectory: DriverPins.workRoot + "/tmp/", discardOutput: true, simulator: deviceID == nil)
                     defer { activation.stop() }
                     _ = try activation.collect(deadline: min(startupDeadline, SecureIO.now + 15))
                     continue
@@ -545,13 +627,27 @@ enum SecureLogin {
             } catch { usleep(100000) }
         }
         guard let prepared else { throw SecureLoginFailure(code: "ios_runner_unavailable") }
+        if preflightOnly { return prepared }
         if prepared["status"] as? String == "already_authenticated" { return prepared }
         guard prepared["status"] as? String == "ready", prepared["environment_verified"] as? Bool == true else {
             return prepared
         }
         guard child.isRunning else { throw SecureLoginFailure(code: "ios_runner_unavailable") }
+        let instance = deviceID == nil ? try SimulatorConnection.appProcessID(device: plan.device, appID: plan.appID) : nil
+        if let instance, try SimulatorConnection.appProcessID(device: plan.device, appID: plan.appID) != instance {
+            throw SecureLoginFailure(code: "app_instance_changed")
+        }
+        if let appIdentity, try SimulatorConnection.appIdentity(device: plan.device, appID: plan.appID) != appIdentity {
+            throw SecureLoginFailure(code: "driver_not_trusted")
+        }
         let secret = try credentials()
         do {
+            if let instance, try SimulatorConnection.appProcessID(device: plan.device, appID: plan.appID) != instance {
+                throw SecureLoginFailure(code: "app_instance_changed")
+            }
+            if let appIdentity, try SimulatorConnection.appIdentity(device: plan.device, appID: plan.appID) != appIdentity {
+                throw SecureLoginFailure(code: "driver_not_trusted")
+            }
             return try iosRequest(plan, deviceID: deviceID, nonce: nonce, listenerToken: listenerToken, action: "login", secret: secret,
                                   deadline: SecureIO.now + Double(plan.timeout) / 1000 + 20)
         } catch {
@@ -577,7 +673,25 @@ enum SecureLogin {
         return result
     }
 
-    private static func runnerInventory(device: String) throws {
+    private static func finishSimulator(_ outcome: [String: Any], device: String, child: LoginChild,
+                                         trustedRunnerPID: Int32?) -> [String: Any] {
+        child.stop(grace: 5)
+        if let trustedRunnerPID { try? SimulatorConnection.terminateRunner(device: device, expectedPID: trustedRunnerPID) }
+        let deadline = SecureIO.now + 3
+        while SecureIO.now < deadline {
+            do {
+                if try !SimulatorConnection.listenerPresent(deadline: min(deadline, SecureIO.now + 1)),
+                   try SimulatorConnection.processID(device: device, appID: SimulatorConnection.runnerBundle) == nil { return outcome }
+            } catch { break }
+            usleep(100000)
+        }
+        var result: [String: Any] = ["status": "uncertain", "code": "ios_runner_cleanup_unconfirmed",
+                                    "environment_verified": outcome["environment_verified"] as? Bool ?? false]
+        if let cleanup = outcome["cleanup"] { result["cleanup"] = cleanup }
+        return result
+    }
+
+    private static func runnerInventory(device: String, simulator: Bool = false) throws {
         let inventory = try LoginChild(path: "/usr/bin/pgrep", arguments: ["-lx", "xcodebuild"],
             temporaryDirectory: DriverPins.workRoot + "/tmp/")
         defer { inventory.stop() }
@@ -596,9 +710,16 @@ enum SecureLogin {
             guard let command = String(data: bytes, encoding: .utf8) else {
                 throw SecureLoginFailure(code: "runner_inventory_unavailable")
             }
-            if command.contains(device) || command.contains(DriverPins.workRoot + "/IOSRuntime") {
+            if command.contains(device) || command.contains(DriverPins.workRoot + "/IOSRuntime")
+                || command.contains(DriverPins.workRoot + "/IOSSimulatorRuntime") {
                 throw SecureLoginFailure(code: "runner_busy")
             }
+        }
+        if simulator {
+            guard try !SimulatorConnection.runnerPresent(device: device) else {
+                throw SecureLoginFailure(code: "runner_busy")
+            }
+            return
         }
         let path = DriverPins.workRoot + "/processes-" + UUID().uuidString + ".json"
         defer { try? FileManager.default.removeItem(atPath: path) }
@@ -648,7 +769,7 @@ enum SecureLogin {
         guard !files.isEmpty, actual == expected else { throw SecureLoginFailure(code: "driver_not_trusted") }
     }
 
-    private static func temporaryTestRun(source: String, nonce: String, listenerToken: String) throws -> String {
+    private static func temporaryTestRun(source: String, nonce: String, listenerToken: String, destination: String? = nil) throws -> String {
         let data = try Data(contentsOf: URL(fileURLWithPath: source))
         let original = try PropertyListSerialization.propertyList(from: data, format: nil)
         let testRoot = URL(fileURLWithPath: source).deletingLastPathComponent().path
@@ -667,7 +788,7 @@ enum SecureLogin {
             return dictionary
         }
         let modified = try PropertyListSerialization.data(fromPropertyList: patch(original), format: .binary, options: 0)
-        let path = DriverPins.workRoot + "/runner-" + UUID().uuidString + ".xctestrun"
+        let path = destination ?? DriverPins.workRoot + "/runner-" + UUID().uuidString + ".xctestrun"
         let descriptor = Darwin.open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         guard descriptor >= 0 else { throw SecureLoginFailure(code: "runner_ownership_unavailable") }
         defer { _ = close(descriptor) }
@@ -675,7 +796,7 @@ enum SecureLogin {
         return path
     }
 
-    private static func iosRequest(_ plan: LoginPlan, deviceID: Int, nonce: String, listenerToken: String, action: String,
+    private static func iosRequest(_ plan: LoginPlan, deviceID: Int?, nonce: String, listenerToken: String, action: String,
                                    secret: Data?, deadline: TimeInterval) throws -> [String: Any] {
         var request: [String: Any] = ["secureAccountProtocol": "agent-test-accounts-v1", "nonce": nonce,
                                      "action": action, "plan": plan.metadata]
@@ -694,8 +815,9 @@ enum SecureLogin {
         }
         let envelope: [String: String] = ["secureAccountProtocol": "agent-test-accounts-v1",
                                         "sealed_request": combined.base64EncodedString()]
-        let response = try USBMux.post(deviceID: deviceID, body: JSONSerialization.data(withJSONObject: envelope),
-                                       listenerToken: listenerToken, deadline: deadline)
+        let body = try JSONSerialization.data(withJSONObject: envelope)
+        let response = try deviceID.map { try USBMux.post(deviceID: $0, body: body, listenerToken: listenerToken, deadline: deadline) }
+            ?? SimulatorConnection.post(body: body, listenerToken: listenerToken, deadline: deadline)
         let clearResponse = try openResponse(response, key: key)
         guard let object = try JSONSerialization.jsonObject(with: clearResponse) as? [String: Any],
               Set(object.keys).isSubset(of: ["protocol", "status", "code", "environment_verified", "cleanup"]),
@@ -744,6 +866,7 @@ enum SecureLogin {
     }
 
     private static let iosCodes: Set<String> = ["LOGIN_VIEW_READY", "SESSION_REUSED", "SUCCESS_OBSERVED", "SUCCESS_NOT_OBSERVED",
+        "LOGIN_VIEW_STILL_PRESENT", "SUCCESS_MARKER_MISSING", "SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE",
         "NO_AUTHORIZED_PROTOCOL", "INVALID_CREDENTIALS", "RUNNER_BUSY", "UI_FAILURE", "APP_NOT_FOREGROUND",
         "LOGIN_VIEW_NOT_READY", "ENVIRONMENT_NOT_VERIFIED", "INPUT_UNAVAILABLE",
         "ENVIRONMENT_FIELDS_NOT_READY", "ENVIRONMENT_NOT_UNIQUE", "ENVIRONMENT_NOT_BUTTON",

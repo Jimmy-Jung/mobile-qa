@@ -61,6 +61,10 @@ enum USBMux {
             "PortNumber": Int(port.bigEndian)], deadline: deadline)
         guard response["Number"] as? Int == 0 else { throw SecureLoginFailure(code: "ios_runner_unavailable") }
         try SecureIO.write(packet, to: descriptor, deadline: deadline)
+        return try readResponse(descriptor, deadline: deadline)
+    }
+
+    static func readResponse(_ descriptor: Int32, deadline: TimeInterval) throws -> Data {
         var incoming = Data()
         let separator = Data([13, 10, 13, 10])
         while incoming.range(of: separator) == nil {

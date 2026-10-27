@@ -39,6 +39,25 @@ struct StoredCredentials: Codable, Equatable, Sendable {
         guard credentials.valid else { throw CredentialStoreFailure.invalidCredentials }
         return credentials
     }
+
+    static func readFromPipe(_ descriptor: Int32) throws -> Self {
+        var info = stat()
+        guard descriptor >= 3, fstat(descriptor, &info) == 0, isatty(descriptor) == 0 else {
+            throw CredentialStoreFailure.invalidCredentials
+        }
+        let kind = info.st_mode & mode_t(S_IFMT)
+        guard kind == mode_t(S_IFIFO) || kind == mode_t(S_IFSOCK) else {
+            throw CredentialStoreFailure.invalidCredentials
+        }
+        do {
+            var pending = Data()
+            let data = try SecureIO.line(descriptor, pending: &pending, limit: 256 * 1024,
+                                         deadline: SecureIO.now + 30)
+            return try decode(data)
+        } catch {
+            throw CredentialStoreFailure.invalidCredentials
+        }
+    }
 }
 
 struct CredentialLocator: Sendable {

@@ -16,6 +16,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Prepare isolated test scratch
         run: |
           qa_tmp="$RUNNER_TEMP/mobile-qa"
@@ -29,6 +32,8 @@ jobs:
         run: python -B -m unittest discover -s skills/mobile-device-qa/tests -v
       - name: Account and login-profile tests with synthetic credentials
         run: python -B -m unittest discover -s skills/test-accounts/tests -v
+      - name: Chat registration pipe tests with synthetic credentials
+        run: node --test skills/test-accounts/tests/test_chat_registration.mjs
       - name: Verify immutable release and public package contents
         run: python -B scripts/package.py --check
       - name: Read-only release diagnostics

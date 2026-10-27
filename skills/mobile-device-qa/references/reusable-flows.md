@@ -2,7 +2,7 @@
 
 - Author: JunyoungJung
 - Created: 2026-10-21
-- Updated: 2026-10-22
+- Updated: 2026-10-27
 
 QA 시작과 반복 구간 작성 전에 읽는다. 메인은 검색·선택·등록을, 실행 담당자는 선택한 파일의 실행·관찰과 저장 후보 반환을 맡는다. 단독 실행이면 메인이 두 역할을 수행한다. 승인·기기 점유·복구·비밀 입력·증거 기준은 [스킬 본문](../SKILL.md)을 따른다.
 
@@ -24,14 +24,17 @@ QA 시작과 반복 구간 작성 전에 읽는다. 메인은 검색·선택·�
 
 | 실행 형식 | 용도와 경계 |
 |---|---|
-| 기존 프로젝트 테스트 | 이미 검증한 진입점을 우선 재사용한다. 테스트의 fixture/실기기 범위를 보존한다. |
+| 기존 프로젝트 테스트 | 이미 검증한 진입점을 우선 재사용한다. 테스트의 fixture/Simulator/실기기 범위와 실행 도구를 보존한다. |
 | `.ad` | 단일 기록·재생. native `.ad`의 include 문법을 가정하지 않는다. |
-| YAML `runFlow` | 공통 동작 파일을 조합한다. 현재 `agent-device`의 Maestro 호환 부분집합만 사용하며 별도 Maestro 설치를 요구하지 않는다. |
+| Maestro CLI YAML | 기존 테스트로 채우기 어려운 iOS·Android·Flutter 공통 흐름이 필요할 때 사용한다. 설치된 Maestro 버전·대상·실제 assertion을 확인한다. |
+| `agent-device`의 YAML `runFlow` | 선택한 `agent-device`가 지원하는 Maestro 호환 부분집합으로 하위 흐름을 조합한다. Maestro CLI 실행과 구분하며 이 경로에서 별도 Maestro 설치를 요구하지 않는다. |
 | `batch` JSON | 짧은 임시 연속 동작. `command`·`input`을 사용하며 `batch/replay`를 중첩하지 않는다. |
 
-설치 버전이 불명확하거나 문법이 맞지 않을 때만 관련 `help`를 확인한다. 0.21.30은 파일·inline `runFlow`, 조건부 `runFlow.when`과 `repeat.while`, `runScript`·`evalScript`를 지원한다. `env`에는 비밀이 아닌 값만 전달하며 일반 함수의 typed 인자·반환값 계약으로 간주하지 않는다. 스크립트와 JavaScript 조건은 호스트의 `node:vm`에서 실행되며 보안 격리가 아니다. 승인된 범위의 검토한 로컬 흐름만 실행하고, 기존 흐름의 도구 버전별 검증 범위를 유지한다. 새 변환기·실행기·검색 서버를 만들지 않는다.
+설치 버전이 불명확하거나 문법이 맞지 않을 때만 관련 `help`를 확인한다. `agent-device` 0.21.30은 파일·inline `runFlow`, 조건부 `runFlow.when`과 `repeat.while`, `runScript`·`evalScript`를 지원한다. `env`에는 비밀이 아닌 값만 전달하며 일반 함수의 typed 인자·반환값 계약으로 간주하지 않는다. 스크립트와 JavaScript 조건은 호스트의 `node:vm`에서 실행되며 보안 격리가 아니다. 승인된 범위의 검토한 로컬 흐름만 실행하고, 기존 흐름의 도구 버전별 검증 범위를 유지한다. 새 변환기·실행기·검색 서버를 만들지 않는다.
 
-선택한 YAML은 `agent-device replay "$FLOW_FILE" --maestro --session "$QA_SESSION" --json`으로 실행할 수 있다. 여기에 본문에서 확정한 플랫폼·기기·runner 인자를 그대로 적용한다. 파일 조합은 지원하는 `runFlow`를 사용하고 장치 연결을 감싼 별도 스크립트를 추가하지 않는다.
+Simulator·Emulator와 Flutter 경계의 도구 선택은 [도구 선택 상세](tool-selection.md)를 따른다. iOS는 [Simulator QA](simulator.md)의 기존 XCUITest·설치된 화면 제어를 재사용하고, Android Emulator는 Android CLI·ADB와 기존 Android UI 테스트를 사용한다. `agent-device` 전용 `.ad`·YAML·ref를 다른 도구가 해석한다고 가정하거나 사용을 강제하지 않는다.
+
+`agent-device`를 선택했다면 선택한 YAML은 `agent-device replay "$FLOW_FILE" --maestro --session "$QA_SESSION" --json`으로 실행할 수 있다. 여기에 본문에서 확정한 플랫폼·기기·runner 인자를 그대로 적용한다. 파일 조합은 지원하는 `runFlow`를 사용하고 장치 연결을 감싼 별도 스크립트를 추가하지 않는다.
 
 공통 하위 흐름은 같은 세션을 이어 쓰며 앱 재실행·상태 초기화·종료를 숨겨 넣지 않는다. 그런 동작이 필요하면 진입/종료용 흐름의 계약에 드러내고 호출자가 선택한다. `.ad`의 terminal `close`와 YAML의 `launchApp`/`clearState`/`stopApp`도 확인한다. `.ad --keep-session`을 YAML에 적용하지 않는다. 실제 기기 선택·세션·runner 인자는 본문의 확정된 실행 정보를 호출 시 사용한다.
 

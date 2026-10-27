@@ -22,7 +22,7 @@ class ListenerProtocolTests(unittest.TestCase):
         native = (ROOT / "native/SecureLogin.swift").read_text()
         runner = (ROOT / "ios/RunnerTests+AccountLogin.swift").read_text()
         self.assertTrue("let listenerToken = UUID().uuidString" in native, "Fresh independent listener token is required")
-        self.assertTrue("temporaryTestRun(source: source, nonce: nonce, listenerToken: listenerToken)" in native, "Listener token must enter the private runfile")
+        self.assertEqual(native.count("temporaryTestRun(source: source, nonce: nonce, listenerToken: listenerToken, destination: artifacts.runfile)"), 2, "Both iOS paths must keep listener tokens in the private invocation directory")
         self.assertTrue('environment["AGENT_DEVICE_RUNNER_TOKEN"] = listenerToken' in native, "Listener token must enter the runner environment")
         session = section(native, "    private static func iosSession(", "    private static func finishIOS(")
         self.assertEqual(session.count("listenerToken: listenerToken"), 2)

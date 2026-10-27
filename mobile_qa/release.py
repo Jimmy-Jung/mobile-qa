@@ -12,7 +12,7 @@ ROOT_FILES = {"plugin.json", "README.md", "README.en.md", "README.ko.md", "LICEN
               "SECURITY.md", "requirements.txt", ".gitignore"}
 DIRECTORIES = {".claude-plugin", ".agents", ".github", "skills", "agents", "integrations",
                "mobile_qa", "scripts", "tests", "examples", "docs"}
-EXTENSIONS = {".py", ".md", ".json", ".swift", ".java", ".yaml", ".yml", ".toml", ".svg", ".csv"}
+EXTENSIONS = {".py", ".mjs", ".md", ".json", ".swift", ".java", ".yaml", ".yml", ".toml", ".svg", ".csv"}
 PRIVATE_NAMES = {"credentials.json", "accounts.json", "config.json", "build.json"}
 DOCUMENTATION_IMAGES = {"examples/design-review/" + name for name in (
     "reference.png", "candidate-before.png", "candidate-final.png",

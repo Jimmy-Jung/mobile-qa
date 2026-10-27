@@ -9,8 +9,10 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
+from xml.parsers.expat import ExpatError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from mobile_qa.release import current_digest, read_json, verify_release
@@ -20,6 +22,8 @@ from keychain_store import SKILL_DIR, build_lock, helper_directory
 
 APP_BUNDLE = "com.agenttestaccounts.runner"
 TEST_BUNDLE = APP_BUNDLE + ".uitests"
+SIMULATOR_APP_BUNDLE = "com.agenttestaccounts.simulator"
+SIMULATOR_TEST_BUNDLE = SIMULATOR_APP_BUNDLE + ".uitests"
 PORT = 19087
 SOURCE_LOCK = Path(__file__).resolve().parents[3] / "mobile_qa/agent-device-0.21.30.json"
 IGNORED = {".build", ".swiftpm", "xcuserdata", "SnapshotPresentationConformance", "Tests"}
@@ -220,13 +224,102 @@ def selected_build_paths(directory):
     return paths
 
 
-def build(team_id=None, unsigned=False):
+def product_plist(path):
+    path = verify_output(path)
+    if path.resolve() != path:
+        raise ValueError("runner 제품 경로에 심볼릭 링크를 사용할 수 없습니다.")
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
+            raise ValueError("runner 제품 메타데이터를 확인하세요.")
+        data = stream.read(1048577)
+    try:
+        value = plistlib.loads(data)
+    except (plistlib.InvalidFileException, ExpatError, ValueError):
+        raise ValueError("runner 제품 메타데이터 형식이 올바르지 않습니다.") from None
+    if not isinstance(value, dict):
+        raise ValueError("runner 제품 메타데이터는 dictionary여야 합니다.")
+    return value
+
+
+def verify_simulator_bundle(bundle, bundle_id, package_type):
+    bundle = verify_output(bundle)
+    if not bundle.is_dir() or bundle.resolve() != bundle:
+        raise ValueError("Simulator bundle 경로를 확인하세요.")
+    info = product_plist(bundle / "Info.plist")
+    executable = info.get("CFBundleExecutable")
+    if (info.get("CFBundleIdentifier") != bundle_id or executable != bundle.stem
+            or info.get("CFBundlePackageType") != package_type
+            or info.get("CFBundleSupportedPlatforms") != ["iPhoneSimulator"]
+            or info.get("DTPlatformName") != "iphonesimulator"
+            or not isinstance(info.get("DTSDKName"), str)
+            or re.fullmatch(r"iphonesimulator[0-9]+(?:\.[0-9]+)*(?:\.internal)?", info["DTSDKName"]) is None):
+        raise ValueError("Simulator 제품의 실제 식별자·실행 파일·SDK가 일치하지 않습니다.")
+    binary = verify_output(bundle / executable)
+    info = binary.lstat()
+    if not stat.S_ISREG(info.st_mode) or not os.access(binary, os.X_OK) or binary.resolve() != binary:
+        raise ValueError("Simulator 제품 실행 파일이 올바르지 않습니다.")
+
+
+def test_product_path(value, products, host):
+    if not isinstance(value, str) or ".." in Path(value).parts:
+        raise ValueError("xctestrun 제품 경로가 올바르지 않습니다.")
+    for marker, directory in [("__TESTROOT__", products), ("__TESTHOST__", host)]:
+        if value.startswith(marker + "/"):
+            value = str(directory) + value[len(marker):]
+            break
+    path = Path(value)
+    if not path.is_absolute() or path.resolve() != path:
+        raise ValueError("xctestrun 제품 경로를 확인하세요.")
+    return verify_output(path)
+
+
+def verify_simulator_products(products, xctestrun):
+    products = verify_output(products)
+    root = products / "Debug-iphonesimulator"
+    app = root / "AgentDeviceRunner.app"
+    host = root / "AgentDeviceRunnerUITests-Runner.app"
+    test = host / "PlugIns/AgentDeviceRunnerUITests.xctest"
+    if set(root.glob("*.app")) != {app, host}:
+        raise ValueError("Simulator 제품 구성이 일치하지 않습니다.")
+    for bundle, identifier, kind in [(app, SIMULATOR_APP_BUNDLE, "APPL"),
+            (host, SIMULATOR_TEST_BUNDLE + ".xctrunner", "APPL"), (test, SIMULATOR_TEST_BUNDLE, "BNDL")]:
+        verify_simulator_bundle(bundle, identifier, kind)
+    xctestrun = verify_output(xctestrun)
+    if xctestrun.parent != products or xctestrun.suffix != ".xctestrun":
+        raise ValueError("Simulator xctestrun 위치가 일치하지 않습니다.")
+    targets = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            if "TestBundlePath" in value:
+                targets.append(value)
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(product_plist(xctestrun))
+    if len(targets) != 1:
+        raise ValueError("Simulator 테스트 대상을 확정할 수 없습니다.")
+    target = targets[0]
+    if (target.get("BlueprintName") != "AgentDeviceRunnerUITests" or target.get("IsUITestBundle") is not True
+            or target.get("TestHostBundleIdentifier") != SIMULATOR_TEST_BUNDLE + ".xctrunner"
+            or target.get("TestBundleIdentifier", SIMULATOR_TEST_BUNDLE) != SIMULATOR_TEST_BUNDLE
+            or test_product_path(target.get("TestHostPath"), products, host) != host
+            or test_product_path(target.get("TestBundlePath"), products, host) != test
+            or test_product_path(target.get("UITargetAppPath"), products, host) != app):
+        raise ValueError("Simulator 테스트·호스트·대상 앱 계약이 일치하지 않습니다.")
+
+
+def build(team_id=None, unsigned=False, *, simulator=False):
     if sys.platform != "darwin":
         raise ValueError("macOS에서만 빌드할 수 있습니다.")
     verify_release()
-    directory = helper_directory().parent / "IOSInput"
+    directory = helper_directory().parent / ("IOSSimulatorInput" if simulator else "IOSInput")
     paths = selected_build_paths(directory)
-    signing = signing_settings(team_id, unsigned)
+    signing = signing_settings(team_id, unsigned or simulator)
     cache_settings = {"CACHE_ROOT": str(paths["cache_root"]),
                       "CLANG_MODULE_CACHE_PATH": str(paths["module_cache"]),
                       "SWIFT_MODULE_CACHE_PATH": str(paths["module_cache"])}
@@ -237,38 +330,44 @@ def build(team_id=None, unsigned=False):
     with build_lock(directory):
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
-        _build(directory, paths, signing, cache_settings, environment, unsigned)
+        _build(directory, paths, signing, cache_settings, environment, unsigned or simulator, simulator=simulator)
 
 
-def _build(directory, paths, signing, cache_settings, environment, unsigned):
+def _build(directory, paths, signing, cache_settings, environment, unsigned, *, simulator=False):
     release_digest, identity = current_digest(), package_identity()
     xcodebuild = Path(environment["DEVELOPER_DIR"]) / "usr/bin/xcodebuild"
     xcodebuild_digest = hashlib.sha256(xcodebuild.read_bytes()).hexdigest()
     runner, hashes = prepare(directory)
+    sdk = "iphonesimulator" if simulator else "iphoneos"
+    app_bundle = SIMULATOR_APP_BUNDLE if simulator else APP_BUNDLE
+    test_bundle = SIMULATOR_TEST_BUNDLE if simulator else TEST_BUNDLE
     # The patched source is isolated from the globally installed automation runner.
     command = ["/usr/bin/xcodebuild", "-quiet", "-project", str(runner / "AgentDeviceRunner.xcodeproj"),
-               "-scheme", "AgentDeviceRunner", "-configuration", "Debug", "-destination", "generic/platform=iOS",
+               "-scheme", "AgentDeviceRunner", "-configuration", "Debug", "-destination",
+               "generic/platform=iOS Simulator" if simulator else "generic/platform=iOS",
                "-derivedDataPath", str(paths["derived_data"]),
                "-clonedSourcePackagesDirPath", str(paths["cloned_packages"]),
-               "-packageCachePath", str(paths["package_cache"]), "build-for-testing",
-               "AGENT_DEVICE_IOS_RUNNER_APP_BUNDLE_ID=" + APP_BUNDLE,
-               "AGENT_DEVICE_IOS_RUNNER_TEST_BUNDLE_ID=" + TEST_BUNDLE,
+               "-packageCachePath", str(paths["package_cache"]), *(["-sdk", sdk] if simulator else []), "build-for-testing",
+               "AGENT_DEVICE_IOS_RUNNER_APP_BUNDLE_ID=" + app_bundle,
+               "AGENT_DEVICE_IOS_RUNNER_TEST_BUNDLE_ID=" + test_bundle,
                "COMPILER_INDEX_STORE_ENABLE=NO", "ENABLE_CODE_COVERAGE=NO", "ENABLE_PREVIEWS=NO",
                "ENABLE_DEBUG_DYLIB=NO", *[name + "=" + value for name, value in cache_settings.items()], *signing]
     with (directory / "build.log").open("w") as log:
         subprocess.run(command, cwd=runner, env=environment, stdout=log, stderr=log, check=True)
     products = directory / "DerivedData/Build/Products"
-    apps = list(products.glob("Debug-iphoneos/*.app"))
+    apps = list(products.glob("Debug-" + sdk + "/*.app"))
     if len(apps) != 2:
         raise ValueError("iOS runner 산출물을 확정할 수 없습니다.")
     if not unsigned:
         for app in apps:
             subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
                            capture_output=True, check=True)
-    candidates = sorted(products.glob("*iphoneos*.xctestrun"))
+    candidates = sorted(products.glob("*.xctestrun" if simulator else "*" + sdk + "*.xctestrun"))
     if len(candidates) != 1:
-        raise ValueError("기기용 xctestrun을 확정할 수 없습니다.")
+        raise ValueError("선택한 iOS 대상의 xctestrun을 확정할 수 없습니다.")
     xctestrun = candidates[0]
+    if simulator:
+        verify_simulator_products(products, xctestrun)
     data = plistlib.loads(xctestrun.read_bytes())
     def disable_attachments(value):
         if isinstance(value, dict):
@@ -284,11 +383,12 @@ def _build(directory, paths, signing, cache_settings, environment, unsigned):
     if (current_digest() != release_digest or package_identity() != identity
             or hashlib.sha256(xcodebuild.read_bytes()).hexdigest() != xcodebuild_digest):
         raise ValueError("빌드 중 플러그인 또는 agent-device가 변경되었습니다. 다시 빌드하세요.")
-    manifest = {"schema_version": 1, "release_digest": release_digest,
+    manifest = {"schema_version": 1, "target_kind": "simulator" if simulator else "physical", "sdk": sdk,
+                "release_digest": release_digest,
                 "developer_dir": environment["DEVELOPER_DIR"],
                 "xcodebuild_sha256": xcodebuild_digest,
                 "agent_device_identity": identity, "source_root": str(runner.parents[1]), "agent_device_version": "0.21.30", "port": PORT,
-                "app_bundle_id": APP_BUNDLE, "test_bundle_id": TEST_BUNDLE,
+                "app_bundle_id": app_bundle, "test_bundle_id": test_bundle,
                 "xctestrun": str(xctestrun), "signed": not unsigned, "source_sha256": hashes,
                 "runner_root": str(products), "runner_tree_sha256": runner_tree_digest(products),
                 "build_script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -321,9 +421,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--team-id")
     parser.add_argument("--unsigned", action="store_true")
+    parser.add_argument("--simulator", action="store_true", help="별도 Simulator runner 빌드; 실기기 서명 불필요")
     options = parser.parse_args()
     try:
-        build(options.team_id, options.unsigned)
+        build(options.team_id, options.unsigned, simulator=options.simulator)
     except (OSError, ValueError, subprocess.SubprocessError):
         print(json.dumps({"status": "error", "message": "선택한 저장소·iOS runner 빌드 로그·서명 설정을 확인하세요."}, ensure_ascii=False))
         sys.exit(1)

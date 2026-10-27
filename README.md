@@ -1,12 +1,17 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
 
 [English](README.en.md) · [결과 리포트 예시](examples/design-review/report.md)
 
-AI가 만든 **“거의 맞는”** 화면과 동작을 사람이 눈으로 하나씩 확인하는 대신, 실기기에서 찍은 화면과 픽셀 수치로 판정하는 검증 루프를 제공합니다.
+AI가 만든 **“거의 맞는”** 화면과 동작을 사람이 눈으로 하나씩 확인하는 대신, 실기기·iOS Simulator·Android Emulator에서 찍은 화면과 픽셀 수치로 판정하는 검증 루프를 제공합니다.
 
-Codex와 Claude Code에서 쓰는 macOS 플러그인입니다. 연결한 실기기에서 앱을 직접 조작해 확인하고, 기준 화면과 픽셀 단위로 비교하고, 허락한 범위에서 코드를 고친 뒤 같은 조건으로 다시 찍어 리포트로 남깁니다. [1], [2], [3]
+Codex와 Claude Code에서 쓰는 macOS 플러그인입니다. 지정한 실기기·iOS Simulator·Android Emulator에서 앱을 조작해 확인하고, 기준 화면과 픽셀 단위로 비교하고, 허락한 범위에서 코드를 고친 뒤 같은 조건으로 다시 찍어 리포트로 남깁니다. Simulator는 `agent-device` 없이도 기존 UI 테스트·사용 가능한 화면 제어와 `simctl` 캡처를 사용할 수 있습니다. [1], [2], [3]
+
+
+## 역할별 도구 선택
+
+[iOS Simulator·Android Emulator·Flutter 도구 선택 기준](skills/mobile-device-qa/SKILL.md#역할별-도구-선택)을 적용합니다. iOS 탐색·캡처는 `simctl`과 설치된 `xcui`/AXe·CUA, Android Emulator는 [Android CLI](https://developer.android.com/tools/agents/android-cli)와 ADB를 기본으로 사용합니다. 반복 회귀는 기존 테스트를 재사용하고, 공통 흐름이 필요할 때 [Maestro](https://docs.maestro.dev/get-started/supported-platform/flutter), Flutter와 OS·네이티브 화면 경계가 필요할 때 [Patrol](https://patrol.leancode.co/documentation/native/overview)을 추가합니다. 원본 PNG 비교와 Markdown·GIF 보고는 조작 도구와 독립적으로 유지합니다.
 
 ## 왜 필요한가요?
 
@@ -154,13 +159,15 @@ iPad 학습 앱에서 “소리는 나는데 영상만 검다”는 문의가 8�
 
 기능 QA에는 Figma가 필요 없습니다. 이미 로그인된 세션이면 계정 도구도 필요 없고, PNG 두 장만 비교할 때는 기기와 `agent-device` 없이 이미지 비교 도구를 사용할 수 있습니다. 세부 명령과 여섯 가지 워크플로우는 [운영 레퍼런스](docs/operations.md#agent-device의-기능과-플러그인의-역할)에 있습니다.
 
+**iOS Simulator QA도 지원합니다.** [Simulator 절차](skills/mobile-device-qa/references/simulator.md)에 따라 `simctl`로 원본 PNG·영상을 확보하고 기존 비교 도구로 디자인 검수와 Markdown 리포트를 작성합니다. 자동 UI 조작 경로가 없으면 필요한 화면 이동만 사용자에게 요청하고 캡처·비교·보고는 계속합니다. Simulator에서 확인한 결과는 실기기 결과와 구분합니다.
+
 ## 할 수 없는 일은 무엇인가요?
 
 - **실기기의 실제 소리·진동·물리적 연결을 단독 검증:** 스피커·이어폰 출력이나 케이블 탈착 등에는 사람 또는 별도 장비가 필요합니다. `audio probe`는 브라우저·호스트에서 출력되는 가상 기기 오디오가 대상입니다.
 - **모든 통신 수집·응답 변조와 서버 저장 확정:** `network`는 앱 로그에 남은 HTTP(S) 정보를 읽습니다. 누락된 통신, 응답 조작, 실제 서버 저장은 프록시·테스트 서버·재조회 같은 별도 근거가 필요합니다.
 - **OS 보안·DRM 우회와 모든 시스템 화면 재현:** 보호된 영상은 검게 캡처될 수 있고, XCTest가 붙여넣기를 자동 허용해 iOS의 허용 팝업을 시험할 수 없는 경우도 있습니다.
 - **화면 일치나 녹화만으로 성능·전체 기능 보장:** 녹화 FPS는 앱의 렌더링 성능이 아닙니다. 보지 않은 상태·기기·내부 처리까지 통과로 확장하지 않으며, 간헐적 버그의 재현도 보장하지 않습니다.
-- **원도구의 모든 대상을 같은 수준으로 지원:** 이 플러그인의 기기 QA 대상은 iPhone·iPad·Android 실기기입니다. 원도구의 시뮬레이터·macOS·TV·웹·원격 기능 전체나 모든 Maestro 문법을 이 플러그인의 지원 범위로 포함하지 않습니다.
+- **원도구의 모든 대상을 같은 수준으로 지원:** 이 플러그인의 기기 QA 경로는 iPhone·iPad·Android 실기기, iOS Simulator, Android Emulator를 포함합니다. Flutter는 실행 대상 플랫폼의 경로를 사용합니다. 원도구의 macOS·TV·웹·원격 기능 전체나 모든 Maestro 문법을 지원 범위로 포함하지 않으며, Simulator 결과로 실기기 동작을 보장하지 않습니다.
 
 위 한계와 별도 검증 방법은 [운영 레퍼런스](docs/operations.md#할-수-없는-일과-별도-검증이-필요한-일)에 구분했습니다. 도구가 지원하는 기능과 특정 기기에서 실제 확인한 결과는 다릅니다. [1], [8]
 
@@ -188,6 +195,8 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 > mobile-device-qa로 지금 checkout과 연결된 Android 시험 기기를 확인해줘. 로그인 세션은 그대로 두고, 목록 열기 → 상세 진입 → 목록 복귀 때 고른 필터가 유지되는지 봐줘. 항목별 결과와 스크린샷, 대표 조작 GIF를 리포트로 만들어줘.
 
+> mobile-device-qa로 지정한 iOS Simulator에서 이 앱을 검수해줘. agent-device 없이 사용 가능한 UI 테스트나 화면 제어와 simctl 캡처를 사용하고, Figma와 디자인을 비교해 스크린샷·겹침·차이·동작 GIF가 포함된 Markdown 리포트를 작성해줘. 필요한 직접 로그인만 요청하고 Simulator에서 확인한 범위를 표시해줘.
+
 > 첨부한 Figma 프레임을 기준으로 지정한 iPhone의 새 빌드를 검수해줘. 같은 크기·배율·테마·폰트·데이터로 찍고 겹침과 차이 이미지로 어긋난 곳을 찾아줘. 관련 UI 코드까지 고치고 다시 빌드해서 같은 조건으로 재촬영해줘.
 
 더 많은 요청 예시와 준비물은 [운영 레퍼런스](docs/operations.md)에 있습니다.
@@ -213,6 +222,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 | [확장 워크플로우 후보](docs/workflow-extensions.md) | AirDrop·Computer Use·API·장비를 연결해 단독 도구의 한계를 보완하는 방법을 찾을 때 |
 | [예시 리포트](examples/design-review/report.md) | 결과물이 실제로 어떻게 생겼는지 볼 때 |
 | [기기 QA 스킬](skills/mobile-device-qa/SKILL.md) | 에이전트가 따르는 검증 규칙을 볼 때 |
+| [Simulator QA](skills/mobile-device-qa/references/simulator.md) | agent-device 없이 iOS Simulator를 조작·캡처하고 디자인 검수·리포트를 작성할 때 |
 | [시험 계정 스킬](skills/test-accounts/SKILL.md) | 계정 저장과 로그인 절차를 볼 때 |
 | [보안 범위](SECURITY.md) | 비밀값이 어디까지 보호되는지 볼 때 |
 

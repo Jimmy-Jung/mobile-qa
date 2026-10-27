@@ -1,14 +1,19 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
 
 [한국어](README.md)
 
-Mobile QA replaces eyeballing AI-generated screens with a loop that judges them from real-device captures and pixel metrics.
+Mobile QA replaces eyeballing AI-generated screens with a loop that judges them from physical-device, iOS Simulator, or Android Emulator captures and pixel metrics.
 
-A macOS plugin for Codex and Claude Code. It drives the app on a connected real device, compares what it captures against a baseline pixel by pixel, fixes code within the scope you allow, recaptures under the same conditions, and writes the whole thing up as a Markdown report. [1], [2], [3]
+A macOS plugin for Codex and Claude Code. It interacts with the app on the specified physical device, iOS Simulator, or Android Emulator, compares what it captures against a baseline pixel by pixel, fixes code within the scope you allow, recaptures under the same conditions, and writes the whole thing up as a Markdown report. Simulator QA can use existing UI tests or available screen-control tools with `simctl` capture, without `agent-device`. [1], [2], [3]
 
 The plugin adds no MCP server, lifecycle hook, remote model service, telemetry, or bundled SDK/binary.
+
+
+## Tool selection by role
+
+Apply the [iOS Simulator, Android Emulator, and Flutter routing policy](skills/mobile-device-qa/references/tool-selection.md). Use `simctl` with installed `xcui`/AXe or host-provided CUA for iOS exploration and capture, and [Android CLI](https://developer.android.com/tools/agents/android-cli) with ADB for Android Emulator. Reuse existing regression tests first; add [Maestro](https://docs.maestro.dev/get-started/supported-platform/flutter) for shared flows and [Patrol](https://patrol.leancode.co/documentation/native/overview) when Flutter needs OS or native-screen interactions. Keep original-PNG comparison and Markdown/GIF reports independent of the interaction tool.
 
 ## Why this exists
 
@@ -156,13 +161,15 @@ The plugin's Python tool performs image comparison; a connected Figma tool expor
 
 Functional QA needs no Figma. An authenticated session needs no account helper, and comparing two supplied PNGs needs neither a device nor `agent-device`. The [operations reference](docs/operations.en.md#agent-device-capabilities-and-plugin-responsibilities) explains the commands and six workflows in detail.
 
+**iOS Simulator QA is also supported.** Follow the [Simulator procedure](skills/mobile-device-qa/references/simulator.md) to capture original PNGs and video with `simctl`, then use the existing comparison tool for design review and a Markdown report. If no automated UI-control path is available, request only the necessary screen navigation and continue capture, comparison, and reporting. Keep Simulator findings separate from physical-device results.
+
 ## What it cannot do
 
 - **Independently verify physical audio, vibration, or connections.** Speaker/headphone output and cable insertion need a person or separate equipment. `audio probe` covers browser or host-rendered simulator/emulator audio.
 - **Capture every request, change responses, or establish server persistence on its own.** `network` reads HTTP(S) entries in app logs. Missing traffic, response manipulation, and server writes need a proxy, test server, read-back, or other evidence.
 - **Bypass OS security or DRM, or reproduce every system prompt.** Protected video may capture as black, and XCTest can automatically grant pasteboard access, preventing a test of the iOS permission dialog.
 - **Establish performance or complete correctness from images and video.** Recording FPS is not app rendering performance. A verdict does not extend to unseen states, devices, or internal processing, and intermittent bugs are not guaranteed to reproduce.
-- **Support every upstream target equally.** This plugin's device-QA scope is physical iPhones, iPads, and Android devices. It does not adopt the full upstream simulator, macOS, TV, web, remote, or Maestro syntax scope.
+- **Support every upstream target equally.** This plugin's QA workflows cover physical iPhones, iPads, Android devices, iOS Simulator, and Android Emulator. Flutter follows its target platform's workflow. It does not adopt the full upstream macOS, TV, web, remote, or Maestro syntax scope, and Simulator results do not establish physical-device behavior.
 
 The [operations reference](docs/operations.en.md#limits-and-checks-that-need-other-evidence) separates these limits from checks that need other tools. A supported command is not a verified result on a particular device. [1], [8]
 
@@ -190,6 +197,8 @@ After that, name the project, the device, and what to check.
 
 > Use mobile-device-qa on this checkout and the connected Android test device. Keep the existing session. Check that the selected filter survives opening an item and returning to the list. Put the per-item results, screenshots, and a short interaction GIF in a Markdown report.
 
+> Use mobile-device-qa on the specified iOS Simulator without agent-device. Use available UI tests or screen control with simctl capture, compare the app against Figma, and write a Markdown report with screenshots, overlays, differences, and an interaction GIF. Request only necessary direct login input and state what was verified on Simulator.
+
 > Review the new build on the specified iPhone against the attached Figma frame. Capture at the same size, scale, theme, fonts, and content, and find mismatches through overlays and a diff image. Fix the relevant UI code, rebuild, and recapture under the same conditions.
 
 More examples and the full prerequisites are in the [operations reference](docs/operations.en.md).
@@ -215,6 +224,7 @@ Brightness in an overlay or the area of a diff region is not treated as a cause 
 | [Workflow candidates](docs/workflow-extensions.en.md) | Combining AirDrop, Computer Use, APIs, and equipment to supplement a single tool's limits |
 | [Example report](examples/design-review/report.md) | Seeing what the deliverable actually looks like |
 | [Device QA skill](skills/mobile-device-qa/SKILL.md) | The verification rules the agent follows |
+| [Simulator QA](skills/mobile-device-qa/references/simulator.md) | Interacting with and capturing iOS Simulator, reviewing designs, and reporting without agent-device |
 | [Test accounts skill](skills/test-accounts/SKILL.md) | Account storage and the login procedure |
 | [Security](SECURITY.md) | How far secrets are protected, and how to report issues |
 

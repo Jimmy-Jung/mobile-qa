@@ -69,6 +69,7 @@ private struct SecureAccountSelector: Decodable {
   var label: String? { fields["label"] }
   var placeholder: String? { fields["placeholder"] }
   var type: String? { fields["type"] }
+  var tabButtonLabel: String? { fields["tab_button_label"] }
 
   init(from decoder: Decoder) throws {
     fields = try decoder.singleValueContainer().decode([String: String].self)
@@ -78,10 +79,27 @@ private struct SecureAccountSelector: Decodable {
     let values = Array(fields.values)
     return values.count == 1
       && (type.map { ["textField", "secureTextField"].contains($0) }
-        ?? ["identifier", "label", "placeholder"].contains(fields.keys.first ?? ""))
+        ?? ["identifier", "label", "placeholder", "tab_button_label"].contains(fields.keys.first ?? ""))
       && values.allSatisfy {
       !$0.isEmpty && $0.utf8.count <= 256 && !$0.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
     }
+  }
+}
+
+private struct SecureAccountNavigation: Decodable {
+  let open_selector: SecureAccountSelector
+  let close_selector: SecureAccountSelector
+  let open_gesture: String
+  let select_if_needed: Bool
+
+  var valid: Bool {
+    [open_selector, close_selector].allSatisfy { $0.valid && $0.type == nil && $0.tabButtonLabel == nil }
+      && ["tap", "long_press"].contains(open_gesture)
+  }
+
+  var metadata: [String: Any] {
+    ["open_selector": open_selector.fields, "close_selector": close_selector.fields,
+     "open_gesture": open_gesture, "select_if_needed": select_if_needed]
   }
 }
 
@@ -94,9 +112,14 @@ private struct SecureAccountPlan: Decodable {
   let environment_selector: SecureAccountSelector
   let timeout_ms: Int
   let release_digest: String
+  let environment_navigation: SecureAccountNavigation?
 
   var valid: Bool {
+    #if !targetEnvironment(simulator)
+    guard environment_navigation == nil else { return false }
+    #endif
     let selectors = [username_selector, password_selector, submit_selector, environment_selector] + success_selectors
+      + (environment_navigation.map { [$0.open_selector, $0.close_selector] } ?? [])
     return app_id.utf8.count <= 200
       && app_id.range(of: #"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)+\z"#, options: .regularExpression) != nil
       && release_digest == secureAccountReleaseDigest
@@ -105,10 +128,24 @@ private struct SecureAccountPlan: Decodable {
       && (username_selector.type == nil || username_selector.type == "textField")
       && (password_selector.type == nil || password_selector.type == "secureTextField")
       && ([submit_selector, environment_selector] + success_selectors).allSatisfy { $0.type == nil }
+      && [username_selector, password_selector, submit_selector, environment_selector].allSatisfy { $0.tabButtonLabel == nil }
+      && (environment_navigation?.valid ?? true)
       && (1000...15000).contains(timeout_ms)
       && selectors.enumerated().allSatisfy { index, selector in
         !selectors.prefix(index).contains { $0.fields == selector.fields }
       }
+  }
+
+  func preparationBinding(nonce: String) -> String? {
+    var metadata: [String: Any] = [
+      "app_id": app_id, "username_selector": username_selector.fields,
+      "password_selector": password_selector.fields, "submit_selector": submit_selector.fields,
+      "success_selectors": success_selectors.map(\.fields), "environment_selector": environment_selector.fields,
+      "timeout_ms": timeout_ms, "release_digest": release_digest, "nonce": nonce,
+    ]
+    if let navigation = environment_navigation { metadata["environment_navigation"] = navigation.metadata }
+    guard let bytes = try? JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys]) else { return nil }
+    return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
   }
 }
 
@@ -125,12 +162,19 @@ private struct SecureAccountRequest: Decodable {
       let action = object["action"] as? String, ["preflight", "login"].contains(action),
       Set(object.keys) == Set(["secureAccountProtocol", "nonce", "action", "plan"] + (action == "login" ? ["username", "password"] : [])),
       let plan = object["plan"] as? [String: Any],
-      Set(plan.keys) == Set(["app_id", "username_selector", "password_selector", "submit_selector", "success_selectors", "timeout_ms", "environment_selector", "release_digest"]),
+      Set(plan.keys) == Set(["app_id", "username_selector", "password_selector", "submit_selector", "success_selectors", "timeout_ms", "environment_selector", "release_digest"]
+        + (plan["environment_navigation"] != nil ? ["environment_navigation"] : [])),
       let success = plan["success_selectors"] as? [[String: String]]
     else { return nil }
     let selectors = ["username_selector", "password_selector", "submit_selector", "environment_selector"]
       .compactMap { plan[$0] as? [String: String] } + success
-    guard selectors.allSatisfy({ $0.count == 1 && ["identifier", "label", "placeholder", "type"].contains($0.keys.first ?? "") }),
+    if let value = plan["environment_navigation"] {
+      guard let navigation = value as? [String: Any],
+        Set(navigation.keys) == ["open_selector", "close_selector", "open_gesture", "select_if_needed"],
+        navigation["open_selector"] is [String: String], navigation["close_selector"] is [String: String]
+      else { return nil }
+    }
+    guard selectors.allSatisfy({ $0.count == 1 && ["identifier", "label", "placeholder", "type", "tab_button_label"].contains($0.keys.first ?? "") }),
       let request = try? JSONDecoder().decode(Self.self, from: data), request.plan.valid
     else { return nil }
     return request
@@ -177,6 +221,79 @@ private struct SecureAccountResult {
 
   static func error(_ code: String, cleanup: SecureAccountCleanup? = nil) -> Self {
     Self(status: "error", code: code, environmentVerified: false, cleanup: cleanup)
+  }
+}
+
+private struct SecureAccountNavigationPreparation {
+  private var binding: String?
+  private var ready = false
+  private var consumed = false
+
+  func belongs(to candidate: String) -> Bool { binding == candidate }
+
+  mutating func begin(_ candidate: String) -> Bool {
+    guard binding == nil else { return false }
+    binding = candidate
+    return true
+  }
+
+  mutating func markReady(_ candidate: String, foreground: Bool, fieldsReady: Bool) -> Bool {
+    guard belongs(to: candidate), !consumed, foreground, fieldsReady else { return false }
+    ready = true
+    return true
+  }
+
+  func matches(_ candidate: String, foreground: Bool, fieldsReady: Bool, afterConsumption: Bool = false) -> Bool {
+    belongs(to: candidate) && ready && foreground && fieldsReady && (afterConsumption || !consumed)
+  }
+
+  mutating func consume(_ candidate: String, foreground: Bool, fieldsReady: Bool) -> Bool {
+    guard !consumed, matches(candidate, foreground: foreground, fieldsReady: fieldsReady) else { return false }
+    consumed = true
+    return true
+  }
+}
+
+private final class SecureAccountNavigationSession {
+  static let shared = SecureAccountNavigationSession()
+  private let lock = NSLock()
+  private var app: XCUIApplication?
+  private var preparation = SecureAccountNavigationPreparation()
+
+  func application(binding: String) -> XCUIApplication? {
+    lock.lock()
+    defer { lock.unlock() }
+    return preparation.belongs(to: binding) ? app : nil
+  }
+
+  func begin(_ candidate: XCUIApplication, binding: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard preparation.begin(binding) else { return false }
+    app = candidate
+    return true
+  }
+
+  func markReady(_ candidate: XCUIApplication, binding: String, fieldsReady: Bool) -> Bool {
+    let foreground = candidate.state == .runningForeground
+    lock.lock()
+    defer { lock.unlock() }
+    return app === candidate && preparation.markReady(binding, foreground: foreground, fieldsReady: fieldsReady)
+  }
+
+  func matches(_ candidate: XCUIApplication, binding: String, fieldsReady: Bool, afterConsumption: Bool = false) -> Bool {
+    let foreground = candidate.state == .runningForeground
+    lock.lock()
+    defer { lock.unlock() }
+    return app === candidate && preparation.matches(binding, foreground: foreground, fieldsReady: fieldsReady,
+                                                   afterConsumption: afterConsumption)
+  }
+
+  func consume(_ candidate: XCUIApplication, binding: String, fieldsReady: Bool) -> Bool {
+    let foreground = candidate.state == .runningForeground
+    lock.lock()
+    defer { lock.unlock() }
+    return app === candidate && preparation.consume(binding, foreground: foreground, fieldsReady: fieldsReady)
   }
 }
 
@@ -269,6 +386,10 @@ extension RunnerTests {
   }
 
   private func secureAccountMatches(_ selector: SecureAccountSelector, in app: XCUIApplication) -> [XCUIElement] {
+    if let label = selector.tabButtonLabel {
+      return app.tabBars.buttons.matching(NSPredicate(format: "label == %@", label))
+        .allElementsBoundByIndex.filter { $0.exists }
+    }
     if let type = selector.type {
       guard ["textField", "secureTextField"].contains(type) else { return [] }
       return app.descendants(matching: type == "textField" ? .textField : .secureTextField)
@@ -288,15 +409,29 @@ extension RunnerTests {
   }
 
   private func secureAccountHasSuccess(_ plan: SecureAccountPlan, app: XCUIApplication) -> Bool {
-    return app.state == .runningForeground
-      && (plan.username_selector.type != nil || secureAccountMatches(plan.username_selector, in: app).isEmpty)
-      && (plan.password_selector.type != nil || secureAccountMatches(plan.password_selector, in: app).isEmpty)
-      && secureAccountMatches(plan.submit_selector, in: app).isEmpty
-      && secureAccountHasPostLoginMarker(plan, app: app, requireUnique: true)
+    secureAccountSuccessFailure(plan, app: app) == nil
   }
 
-  private func secureAccountEnvironmentFailure(_ plan: SecureAccountPlan, app: XCUIApplication) -> String? {
-    guard let fields = secureAccountFields(plan, app: app) else { return "ENVIRONMENT_FIELDS_NOT_READY" }
+  private func secureAccountSuccessFailure(_ plan: SecureAccountPlan, app: XCUIApplication) -> String? {
+    guard app.state == .runningForeground else { return "APP_NOT_FOREGROUND" }
+    guard (plan.username_selector.type != nil || secureAccountMatches(plan.username_selector, in: app).isEmpty)
+      && (plan.password_selector.type != nil || secureAccountMatches(plan.password_selector, in: app).isEmpty)
+      && secureAccountMatches(plan.submit_selector, in: app).isEmpty
+    else { return "LOGIN_VIEW_STILL_PRESENT" }
+    var markerPresent = false
+    for selector in plan.success_selectors {
+      let matches = secureAccountMatches(selector, in: app)
+      if matches.count == 1 && matches[0].isHittable { return nil }
+      markerPresent = markerPresent || !matches.isEmpty
+    }
+    return markerPresent ? "SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE" : "SUCCESS_MARKER_MISSING"
+  }
+
+  private func secureAccountEnvironmentFailure(
+    _ plan: SecureAccountPlan, app: XCUIApplication, requireFields: Bool = true, requireSelected: Bool = true
+  ) -> String? {
+    let fields = secureAccountFields(plan, app: app)
+    guard !requireFields || fields != nil else { return "ENVIRONMENT_FIELDS_NOT_READY" }
     let matches = secureAccountMatches(plan.environment_selector, in: app)
     guard matches.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
     let target = matches[0]
@@ -306,13 +441,97 @@ extension RunnerTests {
       if let placeholder = selector.placeholder { return target.placeholderValue == placeholder }
       return false
     }
-    guard ![fields.0, fields.1, fields.2].contains(where: { $0.isEqual(target) }), !aliasesLoginField
+    let loginFields = [plan.username_selector, plan.password_selector, plan.submit_selector]
+      .flatMap { secureAccountMatches($0, in: app) }
+    let navigationFields = plan.environment_navigation.map {
+      secureAccountMatches($0.open_selector, in: app) + secureAccountMatches($0.close_selector, in: app)
+    } ?? []
+    let successFields = plan.success_selectors.flatMap { secureAccountMatches($0, in: app) }
+    guard !(loginFields + navigationFields + successFields).contains(where: { $0.isEqual(target) }), !aliasesLoginField
     else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
     guard target.elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
     guard target.isEnabled else { return "ENVIRONMENT_NOT_ENABLED" }
     guard target.isHittable else { return "ENVIRONMENT_NOT_HITTABLE" }
-    guard target.isSelected else { return "ENVIRONMENT_NOT_SELECTED" }
+    if requireSelected { guard target.isSelected else { return "ENVIRONMENT_NOT_SELECTED" } }
     return nil
+  }
+
+  private func secureAccountWait(_ plan: SecureAccountPlan, operation: SecureAccountOperation, until condition: @escaping () -> Bool) -> Bool {
+    let predicate = NSPredicate { _, _ in !operation.canContinue || condition() }
+    let waited = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)],
+                               timeout: Double(plan.timeout_ms) / 1000)
+    return waited == .completed && operation.canContinue && condition()
+  }
+
+  private func secureAccountPrepareNavigation(
+    _ plan: SecureAccountPlan, app: XCUIApplication, binding: String, operation: SecureAccountOperation
+  ) -> String? {
+    guard let navigation = plan.environment_navigation,
+      let fields = secureAccountFields(plan, app: app) else { return "LOGIN_VIEW_NOT_READY" }
+    let open = secureAccountMatches(navigation.open_selector, in: app)
+    guard open.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
+    let others = [fields.0, fields.1, fields.2]
+      + secureAccountMatches(navigation.close_selector, in: app)
+      + secureAccountMatches(plan.environment_selector, in: app)
+      + plan.success_selectors.flatMap { secureAccountMatches($0, in: app) }
+    guard !others.contains(where: { $0.isEqual(open[0]) }) else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
+    guard [.image, .button].contains(open[0].elementType) else { return "ENVIRONMENT_NOT_BUTTON" }
+    guard open[0].isEnabled else { return "ENVIRONMENT_NOT_ENABLED" }
+    guard open[0].isHittable else { return "ENVIRONMENT_NOT_HITTABLE" }
+    guard operation.canContinue, SecureAccountNavigationSession.shared.begin(app, binding: binding)
+    else { return "ENVIRONMENT_NOT_VERIFIED" }
+    if navigation.open_gesture == "tap" { open[0].tap() } else { open[0].press(forDuration: 1.0) }
+    guard secureAccountWait(plan, operation: operation, until: {
+      self.secureAccountMatches(plan.environment_selector, in: app).count == 1
+    }) else { return "ENVIRONMENT_NOT_UNIQUE" }
+    if let failure = secureAccountChooseNavigationEnvironment(plan, app: app, operation: operation) { return failure }
+    let close = secureAccountMatches(navigation.close_selector, in: app)
+    guard close.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
+    let aliases = [fields.0, fields.1, fields.2, open[0]] + secureAccountMatches(plan.environment_selector, in: app)
+      + plan.success_selectors.flatMap { secureAccountMatches($0, in: app) }
+    guard !aliases.contains(where: { $0.isEqual(close[0]) }) else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
+    guard close[0].elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
+    guard close[0].isEnabled else { return "ENVIRONMENT_NOT_ENABLED" }
+    guard close[0].isHittable, operation.canContinue else { return "ENVIRONMENT_NOT_HITTABLE" }
+    close[0].tap()
+    let ready = secureAccountWait(plan, operation: operation, until: {
+      self.secureAccountFields(plan, app: app) != nil && self.secureAccountNavigationClosed(plan, app: app)
+    })
+    guard ready, SecureAccountNavigationSession.shared.markReady(app, binding: binding, fieldsReady: ready)
+    else { return "ENVIRONMENT_FIELDS_NOT_READY" }
+    return nil
+  }
+
+  private func secureAccountChooseNavigationEnvironment(
+    _ plan: SecureAccountPlan, app: XCUIApplication, operation: SecureAccountOperation
+  ) -> String? {
+    if let failure = secureAccountEnvironmentFailure(plan, app: app, requireFields: false, requireSelected: false) {
+      return failure
+    }
+    let matches = secureAccountMatches(plan.environment_selector, in: app)
+    guard matches.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
+    let target = matches[0]
+    guard target.elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
+    guard target.isEnabled else { return "ENVIRONMENT_NOT_ENABLED" }
+    guard target.isHittable else { return "ENVIRONMENT_NOT_HITTABLE" }
+    if !target.isSelected, plan.environment_navigation?.select_if_needed == true, operation.canContinue { target.tap() }
+    guard secureAccountWait(plan, operation: operation, until: { target.exists && target.isSelected })
+    else { return "ENVIRONMENT_NOT_SELECTED" }
+    return secureAccountEnvironmentFailure(plan, app: app, requireFields: false)
+  }
+
+  private func secureAccountEnvironmentReady(_ plan: SecureAccountPlan, app: XCUIApplication, binding: String?) -> Bool {
+    guard plan.environment_navigation != nil else { return secureAccountEnvironmentFailure(plan, app: app) == nil }
+    guard let binding else { return false }
+    return SecureAccountNavigationSession.shared.matches(app, binding: binding,
+      fieldsReady: secureAccountFields(plan, app: app) != nil && secureAccountNavigationClosed(plan, app: app),
+      afterConsumption: true)
+  }
+
+  private func secureAccountNavigationClosed(_ plan: SecureAccountPlan, app: XCUIApplication) -> Bool {
+    guard let navigation = plan.environment_navigation else { return true }
+    return (secureAccountMatches(navigation.close_selector, in: app)
+      + secureAccountMatches(plan.environment_selector, in: app)).allSatisfy { !$0.isHittable }
   }
 
   private func secureAccountFields(_ plan: SecureAccountPlan, app: XCUIApplication, forCleanup: Bool = false) -> (XCUIElement, XCUIElement, XCUIElement)? {
@@ -337,14 +556,29 @@ extension RunnerTests {
     operation: SecureAccountOperation
   ) -> SecureAccountResult {
     let plan = request.plan
-    let app = XCUIApplication(bundleIdentifier: plan.app_id)
+    let binding = plan.environment_navigation == nil ? nil : plan.preparationBinding(nonce: request.nonce)
+    let prepared = binding.flatMap { SecureAccountNavigationSession.shared.application(binding: $0) }
+    let app = prepared ?? XCUIApplication(bundleIdentifier: plan.app_id)
     guard app.state == .runningForeground, operation.canContinue else { return .error("APP_NOT_FOREGROUND") }
     if secureAccountHasSuccess(plan, app: app) {
       return SecureAccountResult(status: "already_authenticated", code: "SESSION_REUSED", environmentVerified: false)
     }
     guard !secureAccountHasPostLoginMarker(plan, app: app)
     else { return .error("LOGIN_VIEW_NOT_READY") }
-    if let failure = secureAccountEnvironmentFailure(plan, app: app) { return .error(failure) }
+    if plan.environment_navigation != nil {
+      guard let binding else { return .error("ENVIRONMENT_NOT_VERIFIED") }
+      if request.action == "preflight", prepared == nil {
+        if let failure = secureAccountPrepareNavigation(plan, app: app, binding: binding, operation: operation) {
+          return .error(failure)
+        }
+      } else {
+        let fieldsReady = secureAccountFields(plan, app: app) != nil && secureAccountNavigationClosed(plan, app: app)
+        let ready = request.action == "preflight"
+          ? SecureAccountNavigationSession.shared.matches(app, binding: binding, fieldsReady: fieldsReady)
+          : SecureAccountNavigationSession.shared.consume(app, binding: binding, fieldsReady: fieldsReady)
+        guard ready else { return .error("ENVIRONMENT_NOT_VERIFIED") }
+      }
+    } else if let failure = secureAccountEnvironmentFailure(plan, app: app) { return .error(failure) }
     guard operation.canContinue
     else { return .error("ENVIRONMENT_NOT_VERIFIED") }
     if request.action == "preflight" {
@@ -367,18 +601,28 @@ extension RunnerTests {
         secureAccountReplace(password, in: passwordFields.1, app: app),
         operation.canContinue,
         let submitFields = secureAccountFields(plan, app: app),
-        secureAccountEnvironmentFailure(plan, app: app) == nil
+        secureAccountEnvironmentReady(plan, app: app, binding: binding)
       else { return .error("INPUT_UNAVAILABLE") }
       submitFields.2.tap()
+      var lastFailureCode = "SUCCESS_NOT_OBSERVED"
       let predicate = NSPredicate { _, _ in
-        !operation.canContinue || self.secureAccountHasSuccess(plan, app: app)
+        guard operation.canContinue else { return true }
+        if let failure = self.secureAccountSuccessFailure(plan, app: app) {
+          lastFailureCode = failure
+          return false
+        }
+        return true
       }
       let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
       let waited = XCTWaiter.wait(for: [expectation], timeout: Double(plan.timeout_ms) / 1000)
-      let authenticated = waited == .completed && operation.canContinue && secureAccountHasSuccess(plan, app: app)
+      var authenticated = false
+      if waited == .completed && operation.canContinue {
+        if let failure = secureAccountSuccessFailure(plan, app: app) { lastFailureCode = failure }
+        else { authenticated = true }
+      }
       return SecureAccountResult(
         status: authenticated ? "authenticated" : "login_failed_or_unverified",
-        code: authenticated ? "SUCCESS_OBSERVED" : "SUCCESS_NOT_OBSERVED", environmentVerified: authenticated
+        code: authenticated ? "SUCCESS_OBSERVED" : lastFailureCode, environmentVerified: authenticated
       )
     }()
     if result.status != "authenticated" {

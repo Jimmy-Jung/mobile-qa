@@ -1,7 +1,7 @@
 {
   "name": "mobile-qa",
   "version": "0.2.2",
-  "description": "Local mobile device QA, pixel design review, project knowledge, and scoped test-account login.",
+  "description": "iOS, Android and Flutter device, Simulator and Emulator QA with reusable tests, independent pixel review, and Markdown/GIF reports.",
   "author": {
     "name": "JunyoungJung"
   },

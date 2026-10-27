@@ -39,7 +39,205 @@ class NativeAdapterTests(unittest.TestCase):
                 self.assertEqual(persistent_ref, REF)
                 process.communicate.assert_not_called()
         self.assertEqual(launch.call_args.args[0], ["/native/keychain-helper", "create", "--id", "sample", "--context", "project / staging / student"])
+        self.assertNotIn("pass_fds", launch.call_args.kwargs)
         process.communicate.assert_called_once_with(input="commit\n")
+
+    def test_copy_registration_passes_only_source_identity_and_commits_after_catalog(self):
+        process = self.process()
+        with patch.object(store.subprocess, "Popen", return_value=process) as launch:
+            with store.Keychain().registration("new-sample", "metadata", copy_from=("source-sample", REF)) as persistent_ref:
+                self.assertEqual(persistent_ref, REF)
+                process.communicate.assert_not_called()
+        self.assertEqual(launch.call_args.args[0], [
+            "/native/keychain-helper", "create-copy", "--id", "new-sample", "--context", "metadata",
+            "--source-id", "source-sample", "--source-ref", REF,
+        ])
+        self.assertNotIn("pass_fds", launch.call_args.kwargs)
+        process.communicate.assert_called_once_with(input="commit\n")
+
+    def test_copy_registration_preserves_transaction_rollback_and_cancellation(self):
+        process = self.process(final="rolled_back")
+        with patch.object(store.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "catalog failed"):
+                with store.Keychain().registration("new-sample", "metadata", copy_from=("source-sample", REF)):
+                    raise RuntimeError("catalog failed")
+        process.communicate.assert_called_once_with(input="rollback\n")
+        process = self.process(initial='{"status":"cancelled"}\n')
+        with patch.object(store.subprocess, "Popen", return_value=process):
+            with self.assertRaises(store.Cancelled):
+                with store.Keychain().registration("new-sample", "metadata", copy_from=("source-sample", REF)):
+                    self.fail("cancelled copy reached caller")
+
+    def test_copy_registration_rejects_bad_source_and_mixed_pipe_before_launch(self):
+        for source in [("new-sample", REF), ("source-sample", "not-a-reference"), ("invalid!", REF),
+                       ["source-sample", REF], ("source-sample",), ("source-sample", REF, "extra")]:
+            with self.subTest(source=type(source).__name__), patch.object(store.subprocess, "Popen") as launch:
+                with self.assertRaises(store.KeychainError):
+                    with store.Keychain().registration("new-sample", "metadata", copy_from=source):
+                        self.fail("invalid copy reached caller")
+                launch.assert_not_called()
+        with patch.object(store.subprocess, "Popen") as launch:
+            with self.assertRaises(store.KeychainError):
+                with store.Keychain().registration("new-sample", "metadata", copy_from=("source-sample", REF), credentials_fd=55):
+                    self.fail("mixed input reached caller")
+            launch.assert_not_called()
+
+    def test_pipe_registration_passes_only_duplicated_descriptor_and_closes_it(self):
+        process = self.process()
+        with patch.object(store.os, "isatty", return_value=False), \
+             patch.object(store.os, "dup", return_value=56) as duplicate, \
+             patch.object(store.os, "close") as close, \
+             patch.object(store.subprocess, "Popen", return_value=process) as launch:
+            with store.Keychain().registration("sample", "metadata", credentials_fd=55):
+                close.assert_called_once_with(56)
+            duplicate.assert_called_once_with(55)
+        self.assertEqual(launch.call_args.args[0], [
+            "/native/keychain-helper", "create-stdin", "--id", "sample", "--context", "metadata", "--input-fd", "56",
+        ])
+        self.assertEqual(launch.call_args.kwargs["pass_fds"], (56,))
+        self.assertIs(launch.call_args.kwargs["stdin"], subprocess.PIPE)
+        self.assertIs(launch.call_args.kwargs["stderr"], subprocess.DEVNULL)
+        process.communicate.assert_called_once_with(input="commit\n")
+
+    def test_pipe_registration_closes_descriptor_when_helper_cannot_start(self):
+        with patch.object(store.os, "isatty", return_value=False), \
+             patch.object(store.os, "dup", return_value=56), \
+             patch.object(store.os, "close") as close, \
+             patch.object(store.subprocess, "Popen", side_effect=OSError("password-sentinel")):
+            with self.assertRaises(store.KeychainError) as failure:
+                with store.Keychain().registration("sample", "metadata", credentials_fd=55):
+                    self.fail("failed launch reached registration caller")
+            close.assert_called_once_with(56)
+        self.assertNotIn("password-sentinel", str(failure.exception))
+
+    def test_pipe_registration_rejects_interactive_or_unavailable_input(self):
+        for kind in ["tty", "invalid-fd", "dup-failed"]:
+            with self.subTest(kind=kind), \
+                 patch.object(store.os, "isatty", return_value=kind == "tty"), \
+                 patch.object(store.os, "dup", side_effect=OSError("password-sentinel")) as duplicate, \
+                 patch.object(store.os, "close") as close, patch.object(store.subprocess, "Popen") as launch:
+                with self.assertRaises(store.KeychainError) as failure:
+                    with store.Keychain().registration("sample", "metadata", credentials_fd=0 if kind == "invalid-fd" else 55):
+                        self.fail("invalid input reached registration caller")
+                self.assertNotIn("password-sentinel", str(failure.exception))
+                launch.assert_not_called()
+                close.assert_not_called()
+                if kind != "dup-failed":
+                    duplicate.assert_not_called()
+
+    def test_pipe_registration_keeps_rollback_on_caller_failure(self):
+        process = self.process(final="rolled_back")
+        with patch.object(store.os, "isatty", return_value=False), \
+             patch.object(store.os, "dup", return_value=55), patch.object(store.os, "close"), \
+             patch.object(store.subprocess, "Popen", return_value=process):
+            with self.assertRaises(RuntimeError):
+                with store.Keychain().registration("sample", "metadata", credentials_fd=55):
+                    raise RuntimeError("catalog failed")
+        process.communicate.assert_called_once_with(input="rollback\n")
+
+    def test_real_pipe_forwarding_keeps_commit_control_separate_from_credentials(self):
+        # 공개 합성 값만 사용하며 실제 계정 저장소나 로그인 도구에는 접근하지 않는다.
+        synthetic_credentials = {"username": " user-sentinel 한글\n", "password": " password-sentinel $()`\\\"\n "}
+        for decision in ["commit", "rollback"]:
+            with self.subTest(decision=decision), tempfile.TemporaryDirectory(prefix="credential-pipe-") as folder:
+                helper = Path(folder) / "synthetic-helper"
+                helper.write_text(
+                    "#!" + sys.executable + "\n"
+                    "import json, os, stat, sys\n"
+                    "descriptor = int(sys.argv[sys.argv.index('--input-fd') + 1])\n"
+                    "assert descriptor >= 3 and stat.S_ISFIFO(os.fstat(descriptor).st_mode)\n"
+                    "with os.fdopen(descriptor, 'r', encoding='utf-8') as source:\n"
+                    "    credentials = json.loads(source.readline())\n"
+                    "assert credentials == " + repr(synthetic_credentials) + "\n"
+                    "print(json.dumps({'status': 'created', 'persistent_ref': '" + REF + "'}), flush=True)\n"
+                    "decision = sys.stdin.readline()\n"
+                    "assert decision in ('commit\\n', 'rollback\\n')\n"
+                    "print(json.dumps({'status': 'committed' if decision == 'commit\\n' else 'rolled_back'}))\n",
+                    encoding="utf-8",
+                )
+                helper.chmod(0o700)
+                read_fd, write_fd = os.pipe()
+                try:
+                    os.write(write_fd, (json.dumps(synthetic_credentials, ensure_ascii=False) + "\n").encode())
+                finally:
+                    os.close(write_fd)
+                os.set_inheritable(read_fd, False)
+                try:
+                    with patch.object(store, "verified_helper", return_value=helper):
+                        if decision == "commit":
+                            with store.Keychain().registration("sample", "metadata", credentials_fd=read_fd) as persistent_ref:
+                                self.assertEqual(persistent_ref, REF)
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, "catalog failed"):
+                                with store.Keychain().registration("sample", "metadata", credentials_fd=read_fd):
+                                    raise RuntimeError("catalog failed")
+                finally:
+                    os.close(read_fd)
+
+    def test_input_isolation_only_gives_native_helper_the_credential_pipe(self):
+        source = (
+            "import os, stat, subprocess, sys\n"
+            "from keychain_store import isolated_credentials_input\n"
+            "with isolated_credentials_input() as descriptor:\n"
+            "    assert descriptor >= 3 and not os.get_inheritable(descriptor)\n"
+            "    assert stat.S_ISFIFO(os.fstat(descriptor).st_mode)\n"
+            "    metadata = subprocess.run([sys.executable, '-c', 'import sys; assert sys.stdin.buffer.read() == bytes()'], close_fds=False, check=True)\n"
+            "    helper = subprocess.run([sys.executable, '-c', 'import os,sys; assert os.read(int(sys.argv[1]), 64) == b\"synthetic-pipe-sentinel\\\\n\"', str(descriptor)], pass_fds=(descriptor,), check=True)\n"
+            "assert stat.S_ISFIFO(os.fstat(0).st_mode)\n"
+            "try:\n"
+            "    os.fstat(descriptor)\n"
+            "    raise AssertionError('descriptor retained')\n"
+            "except OSError:\n"
+            "    pass\n"
+        )
+        environment = {**os.environ, "PYTHONPATH": str(Path(store.__file__).parent)}
+        result = subprocess.run([sys.executable, "-B", "-c", source], input=b"synthetic-pipe-sentinel\n",
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment, timeout=10)
+        self.assertEqual(result.returncode, 0, "isolated input subprocess failed")
+        self.assertEqual((result.stdout, result.stderr), (b"", b""))
+
+    def test_input_isolation_rejects_regular_file_or_tty_before_duplication(self):
+        for mode, interactive in [(0o100600, False), (0o020600, True)]:
+            with self.subTest(mode=mode), patch.object(store.os, "fstat", return_value=Mock(st_mode=mode)), \
+                 patch.object(store.os, "isatty", return_value=interactive), patch.object(store.os, "dup") as duplicate, \
+                 patch.object(store.os, "dup2") as replace:
+                with self.assertRaises(store.KeychainError):
+                    with store.isolated_credentials_input():
+                        self.fail("invalid standard input reached caller")
+                duplicate.assert_not_called()
+                replace.assert_not_called()
+
+    def test_input_isolation_restores_stdin_and_closes_own_descriptors_on_failure(self):
+        with patch.object(store.os, "fstat", return_value=Mock(st_mode=0o010600)), \
+             patch.object(store.os, "isatty", return_value=False), patch.object(store.os, "dup", return_value=55), \
+             patch.object(store.os, "get_inheritable", return_value=True), patch.object(store.os, "open", return_value=56), \
+             patch.object(store.os, "dup2") as replace, patch.object(store.os, "close") as close:
+            with self.assertRaisesRegex(RuntimeError, "metadata failed"):
+                with store.isolated_credentials_input() as descriptor:
+                    self.assertEqual(descriptor, 55)
+                    raise RuntimeError("metadata failed")
+        self.assertEqual(replace.call_args_list[0].args, (56, 0))
+        self.assertEqual(replace.call_args_list[-1].args, (55, 0))
+        self.assertEqual({call.args[0] for call in close.call_args_list}, {55, 56})
+
+    def test_input_isolation_closes_pipe_when_devnull_or_replacement_fails(self):
+        for failure in ["open", "replace"]:
+            with self.subTest(failure=failure), \
+                 patch.object(store.os, "fstat", return_value=Mock(st_mode=0o010600)), \
+                 patch.object(store.os, "isatty", return_value=False), patch.object(store.os, "dup", return_value=55), \
+                 patch.object(store.os, "get_inheritable", return_value=True), \
+                 patch.object(store.os, "open", return_value=56) as open_null, \
+                 patch.object(store.os, "dup2") as replace, patch.object(store.os, "close") as close:
+                if failure == "open":
+                    open_null.side_effect = OSError("password-sentinel")
+                else:
+                    replace.side_effect = [OSError("password-sentinel"), None]
+                with self.assertRaises(store.KeychainError) as result:
+                    with store.isolated_credentials_input():
+                        self.fail("failed isolation reached caller")
+                self.assertNotIn("password-sentinel", str(result.exception))
+                self.assertEqual({call.args[0] for call in close.call_args_list},
+                                 {55} if failure == "open" else {55, 56})
 
     def test_caller_failure_cancels_only_its_open_registration(self):
         process = self.process(final="rolled_back")
@@ -163,11 +361,52 @@ class NativeAdapterTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], ["/native/keychain-helper", "login"])
         self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"id": "sample", "reference": REF, "plan": plan})
 
+    def test_preflight_passes_only_plan_without_accessing_account_locator(self):
+        plan = {"platform": "ios", "device": "11111111-2222-3333-4444-AAAAAAAAAAAA"}
+        response = {"status": "ready", "environment_verified": True}
+        with patch.object(store.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(response))) as run:
+            self.assertEqual(store.Keychain().login({}, plan, preflight_only=True), response)
+        self.assertEqual(run.call_args.args[0], ["/native/keychain-helper", "login-preflight"])
+        self.assertEqual(json.loads(run.call_args.kwargs["input"]), {"plan": plan})
+        self.assertNotIn("reference", run.call_args.kwargs["input"])
+        self.assertNotIn("id", json.loads(run.call_args.kwargs["input"]))
+
+    def test_preflight_rejects_other_targets_and_intrusive_success_states(self):
+        for plan in [{"platform": "android", "device": "11111111-2222-3333-4444-AAAAAAAAAAAA"},
+                     {"platform": "ios", "device": "physical-device"}]:
+            with self.subTest(platform=plan["platform"]), patch.object(store.subprocess, "run") as run:
+                with self.assertRaises(store.KeychainError):
+                    store.Keychain().login({}, plan, preflight_only=True)
+                run.assert_not_called()
+        response = {"status": "authenticated", "environment_verified": True}
+        with patch.object(store.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(response))):
+            with self.assertRaises(store.KeychainError):
+                store.Keychain().login({}, {"platform": "ios", "device": "11111111-2222-3333-4444-AAAAAAAAAAAA"}, preflight_only=True)
+
+    def test_preflight_rejects_ready_or_existing_session_without_exact_environment_semantics(self):
+        plan = {"platform": "ios", "device": "11111111-2222-3333-4444-AAAAAAAAAAAA"}
+        for response in [{"status": "ready", "environment_verified": False}, {"status": "ready"},
+                         {"status": "already_authenticated", "environment_verified": True},
+                         {"status": "already_authenticated"}, {"status": "failed"}, {"status": "not_ready"}]:
+            with self.subTest(response=response), patch.object(store.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(response))):
+                with self.assertRaises(store.KeychainError):
+                    store.Keychain().login({}, plan, preflight_only=True)
+
     def test_login_accepts_only_safe_specific_environment_diagnostics(self):
         for reason in ["FIELDS_NOT_READY", "NOT_UNIQUE", "NOT_BUTTON", "NOT_ENABLED",
                        "NOT_HITTABLE", "NOT_SELECTED", "ALIASES_LOGIN_FIELD"]:
             with self.subTest(reason=reason):
                 response = {"status": "error", "code": "ENVIRONMENT_" + reason, "environment_verified": False}
+                with patch.object(store.subprocess, "run", return_value=Mock(returncode=1, stdout=json.dumps(response))) as run:
+                    self.assertEqual(store.Keychain().login({"id": "sample", "keychain_ref": REF}, {"platform": "ios"}), response)
+                run.assert_called_once()
+
+    def test_login_accepts_fixed_ui_failure_reasons_without_exposing_values(self):
+        for code in ["APP_NOT_FOREGROUND", "LOGIN_VIEW_STILL_PRESENT", "SUCCESS_MARKER_MISSING",
+                     "SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE"]:
+            with self.subTest(code=code):
+                response = {"status": "failed", "code": code, "environment_verified": False,
+                            "cleanup": "unavailable"}
                 with patch.object(store.subprocess, "run", return_value=Mock(returncode=1, stdout=json.dumps(response))) as run:
                     self.assertEqual(store.Keychain().login({"id": "sample", "keychain_ref": REF}, {"platform": "ios"}), response)
                 run.assert_called_once()

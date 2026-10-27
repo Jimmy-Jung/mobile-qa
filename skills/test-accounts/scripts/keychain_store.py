@@ -4,8 +4,10 @@ import fcntl
 import hashlib
 import os
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
+import stat
 import subprocess
 import sys
 
@@ -33,6 +35,38 @@ class KeychainError(RuntimeError):
 
 class Cancelled(Exception):
     pass
+
+
+@contextmanager
+def isolated_credentials_input():
+    """입력 원문을 읽지 않고 fd0에서 분리해 명시적으로 넘길 때만 상속한다."""
+    input_fd = null_fd = None
+    original_inheritable = False
+    replaced = False
+    try:
+        try:
+            mode = os.fstat(0).st_mode
+            if os.isatty(0) or not (stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode)):
+                raise ValueError
+            original_inheritable = os.get_inheritable(0)
+            input_fd = os.dup(0)  # Python의 복제 FD는 기본적으로 비상속이다.
+            if input_fd < 3:
+                raise ValueError
+            null_fd = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
+            replaced = True
+            os.dup2(null_fd, 0)
+        except (OSError, ValueError):
+            raise KeychainError("계정 입력에는 비대화형 전용 파이프가 필요합니다.") from None
+        yield input_fd
+    finally:
+        try:
+            if replaced:
+                os.dup2(input_fd, 0, inheritable=original_inheritable)
+        finally:
+            if null_fd is not None:
+                os.close(null_fd)
+            if input_fd is not None:
+                os.close(input_fd)
 
 
 def helper_directory():
@@ -126,13 +160,36 @@ class Keychain:
             raise KeychainError("계정 등록의 확정 또는 취소를 확인할 수 없습니다.")
 
     @contextmanager
-    def registration(self, account_id, context):
+    def registration(self, account_id, context, *, credentials_fd=None, copy_from=None):
         process = None
         try:
-            process = subprocess.Popen(
-                [str(self.executable), "create", "--id", account_id, "--context", context],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            )
+            input_fd = None
+            arguments = [str(self.executable), "create", "--id", account_id, "--context", context]
+            input_options = {}
+            try:
+                if copy_from is not None:
+                    if (credentials_fd is not None or not isinstance(copy_from, tuple) or len(copy_from) != 2
+                            or not isinstance(copy_from[0], str) or copy_from[0] == account_id
+                            or re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", copy_from[0]) is None):
+                        raise ValueError
+                    source_id, source_ref = copy_from
+                    arguments = [str(self.executable), "create-copy", "--id", account_id, "--context", context,
+                                 "--source-id", source_id, "--source-ref", reference(source_ref)]
+                if credentials_fd is not None:
+                    if type(credentials_fd) is not int or credentials_fd < 3 or os.isatty(credentials_fd):
+                        raise ValueError
+                    # Python은 원문을 읽지 않고 기존 입력 파이프의 복제본만 넘긴다.
+                    input_fd = os.dup(credentials_fd)
+                    arguments = [str(self.executable), "create-stdin", "--id", account_id,
+                                 "--context", context, "--input-fd", str(input_fd)]
+                    input_options = {"pass_fds": (input_fd,)}
+                process = subprocess.Popen(
+                    arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, text=True, **input_options,
+                )
+            finally:
+                if input_fd is not None:
+                    os.close(input_fd)
             data = json.loads(process.stdout.readline(16384), object_pairs_hook=_unique_object)
             if data == {"status": "cancelled"}:
                 raise Cancelled()
@@ -189,16 +246,26 @@ class Keychain:
         arguments = ["migrate-keychain", "--allow-interaction"] if allow_interaction else ["migrate-keychain"]
         return self._summary(arguments, records, "migrated")
 
-    def login(self, record, plan):
-        request = {"id": record["id"], "reference": reference(record["keychain_ref"]), "plan": plan}
+    def login(self, record, plan, *, preflight_only=False):
+        if type(preflight_only) is not bool:
+            raise KeychainError("로그인 준비 확인 모드가 올바르지 않습니다.")
+        if preflight_only:
+            if (plan.get("platform") != "ios" or not isinstance(plan.get("device"), str)
+                    or re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", plan["device"]) is None):
+                raise KeychainError("준비 확인은 실행 중 iOS Simulator에서만 사용할 수 있습니다.")
+            request = {"plan": plan}
+        else:
+            request = {"id": record["id"], "reference": reference(record["keychain_ref"]), "plan": plan}
         try:
             result = subprocess.run(
-                [str(self.executable), "login"], input=json.dumps(request) + "\n",
+                [str(self.executable), "login-preflight" if preflight_only else "login"], input=json.dumps(request) + "\n",
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                 timeout=360 if plan.get("platform") == "ios" else 180, check=False,
             )
             data = json.loads(result.stdout, object_pairs_hook=_unique_object)
             statuses = {"authenticated", "already_authenticated", "not_ready", "failed", "uncertain", "error"}
+            if preflight_only:
+                statuses = {"ready", "already_authenticated", "error", "uncertain"}
             if (not isinstance(data, dict) or set(data) - {"status", "code", "cleanup", "environment_verified"}
                     or data.get("status") not in statuses):
                 raise ValueError
@@ -206,9 +273,12 @@ class Keychain:
                 raise ValueError
             if data["status"] == "authenticated" and data.get("environment_verified") is not True:
                 raise ValueError
+            if preflight_only and ((data["status"] == "ready" and data.get("environment_verified") is not True)
+                                   or (data["status"] == "already_authenticated" and data.get("environment_verified") is not False)):
+                raise ValueError
             if data["status"] == "already_authenticated" and data.get("environment_verified") is True:
                 raise ValueError
-            if result.returncode and data["status"] in {"authenticated", "already_authenticated"}:
+            if result.returncode and data["status"] in {"authenticated", "already_authenticated", "ready"}:
                 raise ValueError
             if "cleanup" in data and (not isinstance(data["cleanup"], str) or data["cleanup"] not in {"cleared", "failed", "unavailable", "unconfirmed"}):
                 raise ValueError
@@ -232,6 +302,7 @@ LOGIN_CODES = {
     "APP_NOT_FOREGROUND", "ENVIRONMENT_NOT_VERIFIED", "INPUT_UNAVAILABLE", "INVALID_CREDENTIALS",
     "LOGIN_VIEW_NOT_READY", "LOGIN_VIEW_READY", "NO_AUTHORIZED_PROTOCOL", "RUNNER_BUSY", "SESSION_REUSED",
     "UI_FAILURE", "SUCCESS_OBSERVED", "SUCCESS_NOT_OBSERVED", "app_not_allowed", "authentication_unconfirmed",
+    "LOGIN_VIEW_STILL_PRESENT", "SUCCESS_MARKER_MISSING", "SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE",
     "driver_not_trusted", "environment_not_unique", "environment_unverifiable", "input_too_large",
     "invalid_credentials_input", "invalid_login_plan", "invalid_login_request", "ios_runner_unavailable",
     "login_elements_not_unique", "login_safety_self_test_failed", "password_input_failed",
@@ -244,7 +315,8 @@ LOGIN_CODES = {
     "ENVIRONMENT_FIELDS_NOT_READY", "ENVIRONMENT_NOT_UNIQUE", "ENVIRONMENT_NOT_BUTTON",
     "ENVIRONMENT_NOT_ENABLED", "ENVIRONMENT_NOT_HITTABLE", "ENVIRONMENT_NOT_SELECTED",
     "ENVIRONMENT_ALIASES_LOGIN_FIELD",
-    "storage_not_ready", "storage_failed", "invalid_credentials",
+    "storage_not_ready", "storage_failed", "invalid_credentials", "ios_target_unverified",
+    "simulator_not_booted", "app_instance_changed", "ios_artifact_cleanup_unconfirmed",
 }
 
 

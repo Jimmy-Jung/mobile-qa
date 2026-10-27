@@ -1,8 +1,8 @@
 # 모델 선택·승격과 구간 반환
 
-Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-22
+Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-27
 
-처음 구간을 위임할 때 읽고 같은 담당자에게 재사용한다. 모델·호스트 변경이나 관찰 불확실성이 생기면 해당 절차를 다시 확인한다. 공통 실행·복구·증거·보고 규칙은 [실기기 앱 검증](../SKILL.md)을 따른다.
+처음 구간을 위임할 때 읽고 같은 담당자에게 재사용한다. 모델·호스트 변경이나 관찰 불확실성이 생기면 해당 절차를 다시 확인한다. 공통 실행·복구·증거·보고 규칙은 [모바일 앱 검증](../SKILL.md)을 따른다.
 
 ## 선택과 제어권
 
@@ -22,7 +22,7 @@ Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-22
 
 ## 구간 입력과 반환
 
-메인은 `segment_id`, 비교용 `target_id`, `app_build`와 설치 일치 근거, 프로젝트별 정책·지식·인증 문맥(`project_context`), 확정된 실행 정보(`execution`), 현재 상태와 확인 시점, 누적 복구 기록(`recovery_history`), 재사용 검색·선택 결과(`flow_plan`), 구간 목표·허용 조작·기대값·체크포인트·중단 조건, 출력 경로, 요청 모델·effort와 확인된 실행 메타데이터를 전달한다. 앱 식별·실행 정보·복구 제한의 기준은 [스킬의 대상과 실행 상태 고정](../SKILL.md#대상과-실행-상태-고정)과 [자율 실행](../SKILL.md#승인-범위-안에서-자율-실행)을 따른다. 기기·앱 식별자와 필요한 환경은 실행 문맥으로만 전달하며 계정·토큰 원문을 문서에 복사하지 않는다.
+메인은 `segment_id`, 비교용 `target_id`, `app_build`와 설치 일치 근거, 프로젝트별 정책·지식·인증 문맥(`project_context`), 확정된 실행 정보(`execution`: 대상 종류·조작/캡처 도구 포함), 현재 상태와 확인 시점, 누적 복구 기록(`recovery_history`), 재사용 검색·선택 결과(`flow_plan`), 구간 목표·허용 조작·기대값·체크포인트·중단 조건, 출력 경로, 요청 모델·effort와 확인된 실행 메타데이터를 전달한다. 앱 식별·실행 정보·복구 제한의 기준은 [스킬의 대상과 실행 상태 고정](../SKILL.md#대상과-실행-상태-고정)과 [자율 실행](../SKILL.md#승인-범위-안에서-자율-실행)을 따른다. 기기·앱 식별자와 필요한 환경은 실행 문맥으로만 전달하며 계정·토큰 원문을 문서에 복사하지 않는다.
 
 입력은 아래 필드명과 중첩을 사용한다. 기존 프로젝트 형식이 있으면 이 항목으로 대응시켜 전달한다. 이 예시는 구조를 설명하며 연결·모델 가용성·실제 실행을 증명하지 않는다. 경로 필드의 `$QA_SKILL_PATH`·`$QA_PROJECT_DIR`·`$QA_PROJECT_STORE`·`$QA_STATE_DIR`·`$QA_OUTPUT_DIR`는 값의 출처를 표시한다. JSON이나 담당자가 변수를 자동 확장하지 않으므로 메인이 확인한 절대 경로를 넣는다. `project_context.store_dir`는 Library의 전용 지식 폴더, 출력 경로는 **선택한 저장 폴더 안에서 대상 프로젝트의 물리 경로로 계산·검증하고 추가 저장 정책을 충족한 산출물 경로**다. 예시 경로나 다른 프로젝트 작업키를 복사해 쓰지 않는다. 전달한 현재 화면의 확인 시점이 없거나 오래됐으면 첫 변경 조작 전에 갱신한다. 실제 모델 메타데이터의 미확인만으로 승인된 QA를 중단하지 않고 `확인 불가`로 기록한다.
 
@@ -43,6 +43,9 @@ Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-22
     "authentication": {"required": null, "procedure_ref": null}
   },
   "execution": {
+    "target_kind": "physical",
+    "control_tool": "agent-device",
+    "capture_tool": "agent-device",
     "host": "Codex",
     "host_version": "확인 불가",
     "session": "qa-local",
@@ -93,6 +96,9 @@ Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-22
     "entrypoint": null
   },
   "execution": {
+    "target_kind": "physical",
+    "control_tool": "agent-device",
+    "capture_tool": "agent-device",
     "host": "Codex",
     "host_version": "확인 불가",
     "session": "qa-local",
@@ -161,6 +167,7 @@ Author: JunyoungJung · Created: 2026-10-06 · Updated: 2026-10-22
 }
 ```
 
+- `execution.target_kind`는 실제 대상의 `physical`·`simulator`·`emulator`이며, iOS Simulator는 `simulator`, Android Emulator는 `emulator`로 기록한다. `control_tool`·`capture_tool`은 실제 선택한 도구다. Simulator의 `simctl` 캡처와 CUA·기존 UI 테스트 등 조작 경로를 구분하고, 자동 조작이 없으면 `control_tool`에 `manual`을 기록한다. 세션·runner가 없는 도구는 해당 필드를 null/해당 없음으로 남기며 agent-device 세션을 만들지 않는다.
 - `condition`은 `충족`·`불일치`·`확인 불가`만 사용하며 최종 `통과`·`실패` 판정은 메인이 한다. 메인은 빠진 필드나 근거를 추정으로 채우지 않는다.
 - 디자인 검수에만 [디자인 입력·캡처 계약](design-review.md#구간-입력과-반환)의 `design_plan`을 전달한다. 일반 QA는 `null` 또는 생략한다. 실행 담당자는 실제 촬영한 `design_captures`만 반환하며 Figma 내보내기를 실기기 캡처로 기록하지 않는다. 검수 대상이 아니면 `[]`, 촬영 실패·미실행은 해당 단계의 사유를 남긴다. 픽셀 비교·코드 수정·최종 판정은 메인이 맡는다.
 - `app_build`는 확인한 버전·해시와 해당하는 타깃·configuration·SDK variant를 요약한다. `app_build_evidence`에는 설치 앱 정보를 확인한 로컬 근거의 절대 경로를 넣는다. 새 빌드 검수라면 산출물과 설치 파일의 일치·설치 결과 근거도 포함한다. 예시의 빈 배열처럼 근거가 없으면 빌드 식별은 미확인이며 해당 빌드의 최종 통과를 선언하지 않는다.

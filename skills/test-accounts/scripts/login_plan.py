@@ -18,7 +18,9 @@ from account_catalog import project_key
 _LABEL = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 _DEVICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 _APP = re.compile(r"[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)+\Z")
+_SIMULATOR = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
 _PROFILE_KEYS = {"schema_version", "name", "platform", "app_id", "environment", "role", "username_selector", "password_selector", "submit_selector", "environment_selector", "success_selectors", "timeout_ms"}
+_NAVIGATION_KEYS = {"open_selector", "close_selector", "open_gesture", "select_if_needed"}
 
 
 class ProfileError(ValueError):
@@ -42,7 +44,7 @@ def label(value):
 
 
 def validate_profile(profile):
-    if (not isinstance(profile, dict) or set(profile) != _PROFILE_KEYS
+    if (not isinstance(profile, dict) or set(profile) not in (_PROFILE_KEYS, _PROFILE_KEYS | {"environment_navigation"})
             or type(profile["schema_version"]) is not int or profile["schema_version"] != 1
             or not isinstance(profile["platform"], str) or profile["platform"] not in {"ios", "android"}
             or not isinstance(profile["app_id"], str) or len(profile["app_id"]) > 200
@@ -57,7 +59,17 @@ def validate_profile(profile):
         raise ValueError("로그인 성공 화면을 명시하세요.")
     selector_keys = ["username_selector", "password_selector", "submit_selector", "environment_selector"]
     selectors = [profile[key] for key in selector_keys] + success
-    for field, selector in zip(selector_keys + ["success_selector"] * len(success), selectors):
+    fields = selector_keys + ["success_selector"] * len(success)
+    if "environment_navigation" in profile:
+        navigation = profile["environment_navigation"]
+        if (profile["platform"] != "ios" or not isinstance(navigation, dict)
+                or set(navigation) != _NAVIGATION_KEYS
+                or navigation["open_gesture"] not in ("tap", "long_press")
+                or type(navigation["select_if_needed"]) is not bool):
+            raise ValueError("Simulator 환경 선택 절차의 형식이 올바르지 않습니다.")
+        selectors += [navigation["open_selector"], navigation["close_selector"]]
+        fields += ["navigation_open", "navigation_close"]
+    for field, selector in zip(fields, selectors):
         if not isinstance(selector, dict) or len(selector) != 1:
             raise ValueError("화면 요소는 단일 선택 조건이어야 합니다.")
         key, value = next(iter(selector.items()))
@@ -67,6 +79,8 @@ def validate_profile(profile):
                 raise ValueError("타입 선택은 아이디 textField·비밀번호 secureTextField에만 사용할 수 있습니다.")
             continue
         allowed = {"identifier", "label", "placeholder"} if profile["platform"] == "ios" else {"identifier", "label"}
+        if profile["platform"] == "ios" and field == "success_selector":
+            allowed |= {"tab_button_label"}
         if (key not in allowed or not isinstance(value, str) or not value
                 or len(value.encode()) > 256 or any(unicodedata.category(char) in {"Cc", "Cf"} for char in value)):
             raise ValueError("화면 요소 선택 조건이 올바르지 않습니다.")
@@ -195,7 +209,8 @@ def build_login_plan(project, environment, platform, device, *, project_path=Non
     except ValueError as error:
         raise ProfileError("profile_untrusted") from error
     if (profile["name"] != login_profile or profile["environment"] != environment or profile["platform"] != platform
-            or profile["role"] != role or (app_id is not None and profile["app_id"] != app_id)):
+            or profile["role"] != role or (app_id is not None and profile["app_id"] != app_id)
+            or ("environment_navigation" in profile and _SIMULATOR.fullmatch(device) is None)):
         raise ProfileError("profile_scope_mismatch")
     return {**{key: value for key, value in profile.items() if key not in {"schema_version", "name"}},
             "device": device, "project_key": qa_key, "account_project": project,

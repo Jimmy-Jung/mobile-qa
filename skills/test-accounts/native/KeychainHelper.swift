@@ -57,6 +57,12 @@ struct KeychainHelper {
         }
         guard let command = arguments.first else { throw Failure.invalidArguments }
         switch command {
+        case "login-preflight":
+            guard arguments.count == 1 else { throw Failure.invalidArguments }
+            let plan = try SecureLoginRequest.readPreflightPlan()
+            return try SecureLogin.run(plan, preflightOnly: true) {
+                throw SecureLoginFailure(code: "invalid_login_request")
+            }
         case "login":
             guard arguments.count == 1 else { throw Failure.invalidArguments }
             let request = try SecureLoginRequest.read()
@@ -74,6 +80,26 @@ struct KeychainHelper {
                 throw Failure.invalidArguments
             }
             let credentials = try prompt(context: context)
+            return try createTransaction(id: id, credentials: credentials)
+        case "create-stdin":
+            let options = try parse(arguments, keys: ["--id", "--context", "--input-fd"])
+            guard let id = options["--id"], validID(id),
+                  let context = options["--context"], validContext(context),
+                  let input = options["--input-fd"], let descriptor = Int32(input),
+                  descriptor >= 3, String(descriptor) == input else {
+                throw Failure.invalidArguments
+            }
+            let credentials = try StoredCredentials.readFromPipe(descriptor)
+            return try createTransaction(id: id, credentials: credentials)
+        case "create-copy":
+            let options = try parse(arguments, keys: ["--id", "--context", "--source-id", "--source-ref"])
+            guard let id = options["--id"], validID(id),
+                  let context = options["--context"], validContext(context),
+                  let sourceID = options["--source-id"], validID(sourceID), sourceID != id else {
+                throw Failure.invalidArguments
+            }
+            let sourceReference = try decodeReference(options["--source-ref"])
+            let credentials = try CredentialFileStore().read(id: sourceID, reference: sourceReference)
             return try createTransaction(id: id, credentials: credentials)
         case "update":
             let options = try parse(arguments, keys: ["--id", "--ref", "--context"])

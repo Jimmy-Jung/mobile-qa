@@ -1,8 +1,12 @@
 # Mobile QA 운영 레퍼런스
 
-Author: JunyoungJung · 2026-10-26 · Version: 0.2.2
+Author: JunyoungJung · 2026-10-27 · Version: 0.2.2
 
 이 문서는 에이전트와 운영자가 참조하는 상세 절차입니다. 플러그인이 무엇이고 왜 쓰는지는 [README](../README.md)에 있습니다. 경로와 명령은 지원 운영체제인 macOS 기준입니다.
+
+## 도구 선택
+
+[역할별 기본 경로](../skills/mobile-device-qa/SKILL.md#역할별-도구-선택)와 [상세 선택 기준](../skills/mobile-device-qa/references/tool-selection.md)을 적용합니다. iOS는 `simctl` + 설치된 `xcui`/AXe·CUA, Android Emulator는 Android CLI + ADB를 기본으로 사용합니다. 기존 스택별 테스트를 우선하고 필요한 공통 회귀만 Maestro로 작성하며 Flutter의 OS·네이티브 경계에는 Patrol을 선택합니다. 원본 PNG 비교와 Markdown·GIF 보고는 조작 도구와 독립적입니다.
 
 ## 전체 흐름
 
@@ -41,13 +45,15 @@ GitHub은 Mermaid를 직접 표시합니다. VSCode 기본 Markdown Preview에�
 | 하고 싶은 작업 | 준비할 것 | 받는 결과 |
 |---|---|---|
 | iPhone·iPad·Android 기능 QA | 프로젝트·설치 빌드·기기·시나리오·기대 동작 | 항목별 관찰과 판정, 스크린샷·대표 조작 GIF를 포함한 Markdown 리포트 |
+| iOS Simulator QA·디자인 검수 | Simulator용 앱·정확한 UDID·runtime·화면 조건, 사용 가능한 조작 경로와 `simctl` | 원본 캡처·동작 근거·픽셀 비교와 Markdown 리포트. 확인 범위는 Simulator로 표시 |
+| Android Emulator QA·디자인 검수 | Emulator용 앱·정확한 serial·Android 버전·화면 조건, Android CLI·ADB와 기존 UI 테스트 | 원본 PNG·동작 근거·픽셀 비교와 Markdown 리포트. CLI 미준비 시 ADB·기존 도구로 가능한 검증을 계속 |
 | 기존 앱 또는 Figma와 디자인 비교 | 기준 앱/빌드 또는 정확한 Figma 프레임·버전, 새 구현, 같은 화면 조건 | 원본 PNG, 25%·50%·75% 겹침, 차이 이미지·마스크, 픽셀 수치와 불일치 위치 |
 | 차이를 수정하고 재검수 | 수정 가능한 코드 범위, 빌드·설치 절차와 권한 | 최초 수정 전 / 최종 변경 빌드의 수정 후 비교, 코드 위치, 새 캡처, 남은 차이 |
 | 프로젝트 정책·지식·흐름 관리 | 프로젝트 경로, 적용할 정책과 확인한 근거 | 프로젝트별 정책 출처, 확인한 지식, 재사용 흐름과 다시 검증할 조건 |
-| 시험 계정 조회·등록·로그인 | 프로젝트·환경·용도, 로그인 시 신뢰 등록한 프로필과 기기 | 선택한 계정 별칭 또는 로그인 결과, 환경 확인·입력 정리 상태 |
+| 시험 계정 조회·등록·로그인 | 프로젝트·환경·용도·대상, 전용 입력기를 사용할 때는 신뢰 등록한 프로필 | 선택한 계정 별칭 또는 로그인 결과, 환경 확인·입력 정리 상태 |
 | 이미 가진 PNG 두 장 비교 | 같은 픽셀 크기와 색 조건의 PNG | 앱·기기·Figma 연결 없이 겹침·차이·픽셀 수치 생성 |
 
-준비된 `agent-device` 세션과 기존 흐름을 재사용합니다. 실행기(runner)는 기기 UI를 조작하는 프로세스입니다. Figma 자료는 이미 연결된 도구로 내보내거나 PNG로 제공하며, 일반 기능 QA에는 Figma가 필요하지 않습니다. 원본 계정값은 채팅이나 리포트에 넣지 않습니다.
+실기기는 준비된 `agent-device` 세션과 기존 흐름을 재사용합니다. iOS Simulator는 [Simulator QA](../skills/mobile-device-qa/references/simulator.md)에 따라 기존 UI 테스트·호스트 화면 제어·이미 설치된 Simulator 도구와 `simctl` 캡처를 사용할 수 있습니다. 실행기(runner)는 UI를 조작하는 프로세스이며 모든 경로에 같은 runner를 요구하지 않습니다. Figma 자료는 이미 연결된 도구로 내보내거나 PNG로 제공하며, 일반 기능 QA에는 Figma가 필요하지 않습니다. 계정 입력은 기본적으로 전용 로컬 창을 사용합니다. 사용자가 현재 채팅에 제공한 새 계정도 전용 등록 경로로 저장·재사용하며 응답이나 리포트에 원문을 반복하지 않습니다.
 
 이미지 비교 명령과 출력 파일·수치 해석 방법은 [예시 리포트](../examples/design-review/report.md)에서 합성 PNG 입력으로 확인할 수 있습니다.
 
@@ -71,7 +77,7 @@ GitHub은 Mermaid를 직접 표시합니다. VSCode 기본 Markdown Preview에�
 
 iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조회·조작할 수 있습니다. 설치 CLI의 `help ios-system-ui`는 실기기 iPhone의 SpringBoard 열기·snapshot·보이는 아이콘 누르기까지 업스트림 검증으로 구분하며, 위젯 추가·편집·제거는 시뮬레이터에서만 검증되어 실기기에서는 별도 확인이 필요합니다. [11]
 
-원도구에는 오디오 레벨 측정, TV 리모컨, 웹·데스크톱, 원격 기기 같은 기능도 있습니다. 이 플러그인의 **기기 QA 대상은 iPhone·iPad·Android 실기기**이며, 원도구의 다른 대상을 자동으로 지원 범위에 포함하지 않습니다. PNG만 비교하는 작업은 기기 제어 없이 실행합니다.
+원도구에는 오디오 레벨 측정, TV 리모컨, 웹·데스크톱, 원격 기기 같은 기능도 있습니다. 이 플러그인의 **기기 QA 대상은 iPhone·iPad·Android 실기기·iOS Simulator·Android Emulator**이며, 원도구의 다른 대상을 자동으로 지원 범위에 포함하지 않습니다. Simulator는 `agent-device` 없이도 QA·디자인 검수·보고를 수행하며 실기기 결과와 구분합니다. PNG만 비교하는 작업은 기기 제어 없이 실행합니다.
 
 다음 작업은 별도 구성요소가 담당합니다.
 
@@ -86,7 +92,7 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 2. **조건 고정 → 간헐적 버그 재현:** 계정·콘텐츠·설정·시작 상태를 맞추고 같은 동작을 반복하며 필요한 구간의 녹화와 로그를 수집합니다. 재현되지 않은 증상은 수정됐다고 처리하지 않고, 실행 횟수·실패 단계·미검증 조건을 남깁니다. [README의 사례 1](../README.md#사례-1-1년-가까이-재현되지-않던-검은-화면)이 그 적용 예입니다.
 3. **기준 촬영 → 디자인 비교 → 수정 후 재촬영:** 기존 앱 또는 Figma 프레임과 새 구현의 크기·배율·테마·데이터·화면 상태를 맞춥니다. `screenshot` 원본을 별도 비교 도구로 분석하고, 수정이 허용되면 프로젝트 절차로 빌드·설치한 뒤 최초 수정 전과 최종 수정 후를 나란히 보고합니다. [2]
 4. **수정 전후 빌드 준비 → 동일 흐름 회귀 확인:** 호스트 에이전트가 프로젝트 절차로 두 빌드를 준비하고 현재 설치본을 확인합니다. 검증한 batch/replay 또는 기존 테스트를 같은 조건에서 실행해 새 결함·기존 결함·재현 불가를 구분합니다. 화면이나 시작 조건이 다르면 녹화된 좌표를 그대로 재생하지 않습니다. [README의 사례 2](../README.md#사례-2-내-변경이-깬-것인지-가리기)가 그 적용 예입니다.
-5. **인증 확인 → 전용 로그인 → QA 재개:** 정상 로그인 세션을 우선 재사용합니다. 필요한 때만 프로젝트·환경·기기에 맞는 계정을 선택하고 신뢰 등록한 프로필과 전용 도구로 입력하며, 비밀 입력 중 캡처·녹화·트리 조회를 멈춥니다. 로그인과 환경 확인·입력 정리가 끝나야 일반 기기 QA를 재개합니다. [3]
+5. **인증 확인 → 로그인 경로 실행·복구 → QA 재개:** 정상 로그인 세션을 우선 재사용합니다. 필요한 때만 프로젝트·환경·기기에 맞는 계정을 선택하고 보호된 입력 경로를 사용합니다. 전용 입력기가 실패하면 준비 복구·다른 보호된 경로·꼭 필요한 사용자 조작으로 이어갑니다. 비밀 입력 중 캡처·녹화·트리 조회를 멈추며, 인증·환경·입력 정리 확인 후 원래 QA를 재개합니다. [3]
 6. **검증한 실행 → 흐름·지식 저장 → 다음 QA에서 재사용:** `.ad`·YAML·batch 파일 또는 기존 테스트의 위치를 사용 계약·시작/종료 조건·기대값·근거와 함께 프로젝트별 카탈로그에 등록합니다. 다음 실행은 먼저 기존 자산을 검색하고, 실행이 확인되지 않은 후보는 `draft`, 조건이 어긋난 자산은 `needs_revalidation`으로 남깁니다. [5], [반복 동작 관리](../skills/mobile-device-qa/references/reusable-flows.md)
 
 이 워크플로우는 스킬이 정한 실행 절차입니다. 개별 기기·빌드에서 통과했는지는 각 실행의 리포트와 원본 근거로 확인합니다. 메인은 기대값과 최종 판정을 맡고, 선택적 실행 담당자는 조작·관찰 결과를 반환합니다. [6]
@@ -105,7 +111,7 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 | Android 실제 키보드·클립보드 동작 전체 | 한글 입력용 테스트 IME는 실제 키보드 조건을 바꾸며, 일부 시스템에서는 ADB 클립보드 명령 자체를 지원하지 않습니다. [13] | 실제 키보드 흐름은 별도 시험. 클립보드는 앱에서 복사·붙여넣기 후 필드 값을 확인 |
 | 모든 화면의 의미 있는 요소 식별 | 사용자 정의 그리기나 불완전한 접근성 트리는 ref·selector를 제공하지 못할 수 있습니다. | 현재 스크린샷을 확인한 좌표 조작. 화면도 확인할 수 없으면 추측 조작 대신 미검증 |
 | 녹화만으로 FPS·지연·전체 품질 판정 | 녹화 FPS와 명령 지연은 앱 렌더링 지표가 아닙니다. 정적 이미지 일치도 동작·접근성·다른 기기까지 보장하지 않습니다. | 준비된 플랫폼 계측과 동일 조건의 기준값 비교. 수집하지 못한 값은 0이 아닌 미검증 [1], [성능 계측](../skills/mobile-device-qa/references/performance.md) |
-| 모든 플랫폼·Maestro 흐름의 동일 실행 | 명령 지원은 대상별로 다르고 Maestro YAML은 지원하는 문법의 일부만 실행합니다. [11], [14] | 설치 버전의 `help`·`capabilities`와 흐름 계약 확인. 미지원 구간은 기존 프로젝트 테스트 또는 준비 필요 |
+| 모든 플랫폼·Maestro 흐름의 동일 실행 | 명령 지원은 대상별로 다르고 `agent-device`의 Maestro 호환 YAML은 지원하는 문법의 일부만 실행합니다. 별도 Maestro CLI의 실행 계약과 구분합니다. [11], [14] | 설치 버전의 `help`·`capabilities`와 흐름 계약 확인. 미지원 구간은 기존 프로젝트 테스트 또는 준비 필요 |
 | 계정·서명·빌드 환경의 자동 해결 | CLI 설치만으로 iOS 페어링·개발자 모드·runner 서명이나 SDK·시험 계정이 준비되지는 않습니다. | 프로젝트의 준비 절차를 수행한 뒤 실행. 단위 테스트·통합 테스트·보안 검토를 UI QA로 대체하지 않음 [1], [3] |
 
 ## 다른 도구를 연결하는 확장 후보
@@ -126,12 +132,14 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 | PNG 비교 | 실행하는 Python 환경의 [Pillow·NumPy](../requirements.txt), 같은 픽셀 크기·호환 색 조건의 단일 프레임 표준 동적 범위(SDR) PNG. 지원 비트 깊이는 [디자인 검수 절차](../skills/mobile-device-qa/references/design-review.md) 참조 |
 | 실기기 기능 QA | Node.js 22.12 이상과 `agent-device`, 연결·승인된 기기와 확인한 설치 앱/빌드 |
 | iOS 실기기 | Xcode·명령행 도구, 페어링·개발자 모드, 필요한 runner와 유효한 사용자 서명 |
+| iOS Simulator | Xcode의 `simctl`, 확인한 Simulator·runtime·Simulator용 앱. UI 조작은 기존 테스트·사용 가능한 화면 제어 중 선택하며 `agent-device`·실기기 서명·계정 helper는 필수가 아님 |
+| Android Emulator | 확인한 Emulator·Android 버전·Emulator용 앱과 정확한 ADB serial. 탐색·캡처는 설치된 Android CLI+ADB를 우선하고 CLI 미준비 시 ADB·기존 Android UI 테스트로 진행. 실기기용 `agent-device` 진단은 필수 조건이 아님 |
 | Android 실기기 | 승인된 ADB 연결; 계정 입력 JAR 빌드에는 Android SDK·JDK 추가 필요 |
-| 계정 등록·변경 | macOS 13 이상, 사용자 서명을 준비한 native helper와 비밀값 전용 로컬 입력 창 |
-| 전용 계정 로그인 | 지원 대상 확인, 저장된 시험 계정, 검토·신뢰 등록한 프로필, 해당 플랫폼 입력 도구, 현재 환경을 확인할 수 있는 로그인 화면. iOS는 직접 USB 연결 실기기 전용이며 Simulator 미지원 |
+| 계정 등록·변경 | macOS 13 이상, 사용자 서명을 준비한 native helper와 비밀값 전용 로컬 입력 창. 현재 채팅에 제공된 새 계정 등록에는 표준 입력 파이프 경로도 지원 |
+| 전용 계정 로그인 | 지원 대상 확인, 저장된 시험 계정, 검토·신뢰 등록한 프로필, 해당 플랫폼 입력 도구, 현재 환경을 확인할 수 있는 로그인 화면. iOS는 직접 USB 실기기와 실행 중인 Simulator를 각각 확인하고 별도 입력 도구 사용 |
 | 코드 수정·재검수 | 수정할 checkout과 범위, 프로젝트 빌드·설치 절차, 반영된 빌드를 확인할 방법 |
 
-iOS 전용 계정 입력은 **직접 USB 연결된 실기기와 agent-device 0.21.30**의 검증한 소스만 지원합니다. Simulator 계정 사용을 허용해도 입력 도구의 지원 기능은 바뀌지 않습니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
+iOS 전용 계정 입력은 **직접 USB 실기기와 실행 중인 Simulator**에 각각 검증된 `agent-device` 0.21.30 기반 runner 소스를 사용합니다. Simulator는 `build_ios_input.py --simulator` → `build_helper.py --simulator-only`로 준비하며 실기기 인증서를 요구하지 않습니다. 실행 중인 정확한 UUID와 별도 산출물 신원을 확인하고 인증·암호화한 loopback 통신을 사용합니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
 
 ### 사용자 도구 경로
 
@@ -162,7 +170,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-Python 환경에 [requirements.txt](../requirements.txt)의 패키지를 준비하고 기기 QA에는 `agent-device`를 별도로 설치합니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
+Python 환경에 [requirements.txt](../requirements.txt)의 패키지를 준비하고 `agent-device` 경로의 실기기 QA에는 해당 CLI를 별도로 설치합니다. iOS Simulator 경로에는 `agent-device`를 필수로 요구하지 않습니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
 로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.2.2 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.2.2)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
@@ -174,6 +182,8 @@ Claude Code에서는 `/mobile-qa:setup`, Codex에서는 설치된 `setup` 스킬
 python3 -B scripts/setup.py
 python3 -B scripts/doctor.py
 ```
+
+Simulator 준비 점검에는 기본 doctor 대신 `python3 -B scripts/doctor.py --simulator --project-dir "$PROJECT_DIR"`를 사용합니다. `simctl`·Pillow/NumPy·선택 저장소를 확인하며 `agent-device`·Android 도구·계정 helper를 요구하지 않습니다. `scope=simulator_capture_and_pixel_comparison`의 `ready`는 캡처·픽셀 비교 준비만 뜻합니다. UI 제어·앱 실행·인증은 `not_checked`로 남으며 실제 대상에서 따로 확인합니다.
 
 저장된 설정이 없을 때만 macOS 폴더 선택 창이 열립니다. **내장 또는 외장 저장소의 원하는 기존 폴더**를 선택하면 실제 볼륨·마운트·볼륨 UUID·쓰기 가능 여부와 심볼릭 링크 없는 경로를 확인해 저장합니다. 다음부터는 동일한 볼륨을 검증하고 재사용합니다.
 
@@ -191,7 +201,7 @@ setup과 native 빌드 도구는 선택한 볼륨을 재검증합니다. **단�
 
 ## 요청 예시
 
-Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선택합니다. Claude Code에서는 `/mobile-qa:mobile-device-qa`, `/mobile-qa:test-accounts`로 시작할 수 있습니다. 아래 예시에서 현재 프로젝트와 확인할 대상·빌드·환경을 구체적으로 지정하세요. 비밀번호는 프롬프트에 넣지 않습니다.
+Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선택합니다. Claude Code에서는 `/mobile-qa:mobile-device-qa`, `/mobile-qa:test-accounts`로 시작할 수 있습니다. 아래 예시에서 현재 프로젝트와 확인할 대상·빌드·환경을 구체적으로 지정하세요. 기본 계정 입력은 전용 로컬 창이며, 현재 채팅에 직접 제공한 값도 아래 절차로 저장할 수 있습니다.
 
 ### 기능 QA
 
@@ -200,6 +210,12 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 ### Figma 디자인 검수와 수정
 
 > 첨부한 Figma 프레임과 버전을 기준으로 지정한 iPhone의 새 앱 빌드를 검수해줘. 같은 화면 크기·배율·테마·폰트·데이터·상태에서 촬영하고 겹침과 차이 이미지로 불일치를 찾아줘. 관련 UI 코드 수정과 프로젝트 절차에 따른 빌드·설치까지 수행한 뒤 같은 조건으로 재촬영해줘. 기준은 유지하고 최초 수정 전과 최종 변경 빌드의 결과를 비교해줘.
+
+### agent-device 없는 iOS Simulator QA
+
+> 지정한 iOS Simulator의 이 앱을 agent-device 없이 검수해줘. 기존 UI 테스트나 사용 가능한 화면 제어로 이동하고 simctl 원본 PNG·영상으로 기능 QA와 Figma 디자인 검수를 수행해줘. 자동 조작이나 로그인이 막히면 필요한 사용자 조작만 요청하고 가능한 캡처·비교·Markdown 리포트는 계속 작성해줘. Simulator에서 확인한 범위와 미검증 항목을 구분해줘.
+
+대상·로그인·원본 캡처·녹화 종료·GIF·픽셀 비교 순서는 [Simulator QA](../skills/mobile-device-qa/references/simulator.md)를 따릅니다. `simctl`에는 일반 탭·텍스트 입력 기능이 없으므로 실제 사용할 UI 조작 경로를 별도로 확인합니다. 자동 조작이 없으면 필요한 화면 이동만 요청하고 확보한 근거로 리포트를 완성합니다.
 
 ### 기존 앱과 비교만 하기
 
@@ -213,11 +229,11 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 
 > test-accounts로 이 프로젝트의 staging 환경 tester 용도 계정을 찾아줘. 선택한 별칭과 준비 상태만 알려줘. 정상 로그인 세션은 유지하고, 로그인이 필요하면 미리 신뢰 등록한 sample-staging 프로필과 지정한 기기를 사용해줘. 로그인 결과·환경 확인·입력 정리 상태를 구분해서 보고해줘.
 
-로그인 프로필은 앱·환경·입력 필드·성공 확인 방법을 정의하는 비밀값 없는 JSON 계약입니다. 지원 대상에서 저장된 계정이 없을 때만 계정 등록을 안내하며 실제 아이디·비밀번호는 전용 로컬 입력 창으로 등록합니다. 새 앱의 비밀 없는 프로필은 승인된 로그인 범위에서 검토·등록합니다. [가상 프로필](../skills/test-accounts/examples/login-profile.example.json)을 그대로 신뢰하지 말고 실제 앱 ID·환경·용도·화면 selector와 대조한 후 `register-profile --project PROJECT --file JSON`으로 명시 등록합니다. `login`에는 `--login-profile NAME`이 필요합니다. release·도구·프로필 내용이 바뀌면 다시 검토·등록합니다. 자세한 준비와 호출은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
+로그인 프로필은 앱·환경·입력 필드·성공 확인 방법을 정의하는 비밀값 없는 JSON 계약입니다. 저장된 계정이 실제로 없을 때만 등록을 안내하며 기본 입력은 전용 로컬 창입니다. 사용자가 현재 채팅에 아이디·비밀번호를 제공했다면 `register --credentials-stdin`의 전용 파이프로 저장하고 해당 별칭을 조회해 로그인에 사용합니다. 같은 값을 다시 입력하도록 요구하지 않습니다. 원문은 명령 인자·환경변수·파일·클립보드·출력에 넣지 않습니다. 채팅·호스트 도구 입력 기록의 삭제는 보장하지 않습니다. 자세한 연결은 [채팅 계정 등록](../skills/test-accounts/SKILL.md#채팅으로-제공한-계정-저장과-재사용)을 따릅니다. 새 앱의 비밀 없는 프로필은 승인된 로그인 범위에서 검토·등록합니다. [가상 프로필](../skills/test-accounts/examples/login-profile.example.json)을 그대로 신뢰하지 말고 실제 앱 ID·환경·용도·화면 selector와 대조한 후 `register-profile --project PROJECT --file JSON`으로 명시 등록합니다. `login`에는 `--login-profile NAME`이 필요합니다. release·도구·프로필 내용이 바뀌면 다시 검토·등록합니다. 자세한 준비와 호출은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
 
-입력 도구 준비·빌드 전에 대상 지원 여부를 확인합니다. UUID형 iOS 대상은 `login`이 계정 목록·프로필·helper 접근 전에 `simctl` 목록과 대조하며, `simulator_not_supported` 또는 `login_target_unverified`이면 로그인 의존 항목을 `준비 필요`로 남깁니다. 지원 대상에서 필요한 프로필 준비와 기존 도구 빌드는 진행하되 정상 도구는 재사용합니다. 실패 원인이 달라지거나 수정 근거가 있을 때만 재시도하고 같은 원인이 반복되면 독립 QA를 계속합니다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 앱의 필드 마스킹·환경 버튼 추가는 별도 개발 작업입니다.
+입력 도구 준비·빌드 전에 대상 지원 여부를 확인합니다. UUID형 iOS 대상은 전용 `login`이 계정 목록·프로필·helper 접근 전에 `simctl` 목록과 대조합니다. `login_target_unverified`·`ios_target_unverified`이면 대상을 확인하고 `simulator_not_booted`이면 지정한 Simulator의 부팅·가용 상태를 확인합니다. Simulator용 준비와 다른 경로의 인증을 요청한 대상에 맞춰 선택합니다. 지원 대상의 프로필 준비와 필요한 기존 도구 빌드는 같은 로그인 요청에서 수행합니다. 전용 iOS 입력기의 환경 버튼·프로필 조건을 다른 경로에 일괄 요구하지 않습니다. 같은 실패를 반복하지 않되 준비 부족만으로 로그인을 종료하지 않으며, 자동 경로가 없으면 필요한 직접 입력만 요청하고 `사용자 입력 대기`로 유지합니다. 입력 종료·정리 확인으로 화면 조회를 재개한 뒤 인증·실제 환경을 확인하고 원래 QA를 이어갑니다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 앱 개조는 로그인 선행 조건이 아니며 별도 개발 작업입니다. 자세한 순서는 [로그인 복구 절차](../skills/test-accounts/SKILL.md#막혔을-때의-복구)를 따릅니다.
 
-iOS 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 사용자가 앱에 직접 입력하도록 안내합니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 계정 재등록은 요구하지 않습니다.
+전용 iOS 입력기의 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. Simulator에서 옵션 화면에 있는 환경은 검토한 `environment_navigation`의 고정 열기·확인·닫기 절차로 확인합니다. 승인된 프로필에 `select_if_needed:true`를 명시했을 때만 지정 환경을 선택할 수 있습니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 위 복구 절차의 사용자 직접 입력으로 이어갑니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 불필요한 계정 재등록은 요구하지 않습니다.
 
 ## 결과물 구조와 수치 해석
 
@@ -282,7 +298,7 @@ Claude 실행 역할은 `mobile-qa:mobile-qa-runner`로 제공됩니다. [Codex 
 
 ## 검증·배포
 
-테스트는 루트 `tests`, 각 스킬의 `tests`를 각각 `python3 -B -m unittest discover -s 경로`로 실행합니다. 로컬 임시 폴더·로그는 선택한 저장 폴더 안에서 프로젝트·호스트의 추가 저장 정책을 지키는 경로에 둡니다. CI는 합성 입력과 가상 볼륨 정보만 쓰며 실제 기기·계정·Library 자료를 사용하지 않습니다.
+테스트는 루트 `tests`, 각 스킬의 `tests`를 각각 `python3 -B -m unittest discover -s 경로`로 실행합니다. 채팅 등록 연결은 Node.js 22의 `node --test skills/test-accounts/tests/test_chat_registration.mjs`로 검증합니다. 로컬 임시 폴더·로그는 선택한 저장 폴더 안에서 프로젝트·호스트의 추가 저장 정책을 지키는 경로에 둡니다. CI는 합성 입력과 가상 볼륨 정보만 쓰며 실제 기기·계정·Library 자료를 사용하지 않습니다.
 
 ```bash
 python3 -B scripts/package.py --check

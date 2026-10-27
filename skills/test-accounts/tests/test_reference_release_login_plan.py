@@ -18,7 +18,7 @@ class TrustedLoginProfileTests(unittest.TestCase):
         self.assertEqual(cli.parser().parse_args([*arguments, "--login-profile", "sample-qa"]).login_profile, "sample-qa")
 
     def test_cli_forwards_current_project_and_full_scope_without_secret_access(self):
-        args = SimpleNamespace(project=Path("/synthetic/project"), environment="staging", platform="ios", device="synthetic-phone", app_id="org.example.sample", device_name=None, account=None, capability=[], role="tester", login_profile="sample-staging")
+        args = SimpleNamespace(project=Path("/synthetic/project"), environment="staging", platform="ios", device="synthetic-phone", app_id="org.example.sample", device_name=None, account=None, capability=[], role="tester", login_profile="sample-staging", preflight_only=False)
         catalog = Mock()
         catalog.find.return_value = {"candidates": [{"id": "synthetic-account"}]}
         with patch.object(cli, "project_key", return_value="example.test/team/sample"), patch.object(cli, "build_login_plan", return_value={}) as build, patch.object(cli, "Keychain") as keychain:
