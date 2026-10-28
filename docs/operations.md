@@ -1,6 +1,6 @@
 # Mobile QA 운영 레퍼런스
 
-Author: JunyoungJung · 2026-10-27 · Version: 0.3.0
+Author: JunyoungJung · 2026-10-28 · Version: 0.3.1
 
 이 문서는 에이전트와 운영자가 참조하는 상세 절차입니다. 플러그인이 무엇이고 왜 쓰는지는 [README](../README.md)에 있습니다. 경로와 명령은 지원 운영체제인 macOS 기준입니다.
 
@@ -172,7 +172,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 Python 환경에 [requirements.txt](../requirements.txt)의 패키지를 준비하고 `agent-device` 경로의 실기기 QA에는 해당 CLI를 별도로 설치합니다. iOS Simulator 경로에는 `agent-device`를 필수로 요구하지 않습니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
-로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.3.0 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.0)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
+로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.3.1 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.1)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
 ## 최초 저장소 선택
 
@@ -233,7 +233,7 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 
 입력 도구 준비·빌드 전에 대상 지원 여부를 확인합니다. UUID형 iOS 대상은 전용 `login`이 계정 목록·프로필·helper 접근 전에 `simctl` 목록과 대조합니다. `login_target_unverified`·`ios_target_unverified`이면 대상을 확인하고 `simulator_not_booted`이면 지정한 Simulator의 부팅·가용 상태를 확인합니다. Simulator용 준비와 다른 경로의 인증을 요청한 대상에 맞춰 선택합니다. 지원 대상의 프로필 준비와 필요한 기존 도구 빌드는 같은 로그인 요청에서 수행합니다. 전용 iOS 입력기의 환경 버튼·프로필 조건을 다른 경로에 일괄 요구하지 않습니다. 같은 실패를 반복하지 않되 준비 부족만으로 로그인을 종료하지 않으며, 자동 경로가 없으면 필요한 직접 입력만 요청하고 `사용자 입력 대기`로 유지합니다. 입력 종료·정리 확인으로 화면 조회를 재개한 뒤 인증·실제 환경을 확인하고 원래 QA를 이어갑니다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 앱 개조는 로그인 선행 조건이 아니며 별도 개발 작업입니다. 자세한 순서는 [로그인 복구 절차](../skills/test-accounts/SKILL.md#막혔을-때의-복구)를 따릅니다.
 
-전용 iOS 입력기의 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. Simulator에서 옵션 화면에 있는 환경은 검토한 `environment_navigation`의 고정 열기·확인·닫기 절차로 확인합니다. 승인된 프로필에 `select_if_needed:true`를 명시했을 때만 지정 환경을 선택할 수 있습니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 위 복구 절차의 사용자 직접 입력으로 이어갑니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 불필요한 계정 재등록은 요구하지 않습니다.
+전용 iOS 입력기의 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. Simulator에서 옵션 화면에 있는 환경은 검토한 `environment_navigation`의 고정 열기·확인·닫기 절차로 확인합니다. 승인된 프로필에 `select_if_needed:true`를 명시했을 때만 지정 환경을 선택할 수 있습니다. 로그인·옵션 화면 어디에도 환경 선택 제어가 없는 앱은 빌드 근거로 환경을 확인한 뒤 `environment_selector: null`로 등록합니다. 이때 결과는 `environment_verified:false`와 `environment_check:"not_configured"`로 화면 관측이 없었음을 표시합니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 위 복구 절차의 사용자 직접 입력으로 이어갑니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 불필요한 계정 재등록은 요구하지 않습니다.
 
 ## 결과물 구조와 수치 해석
 

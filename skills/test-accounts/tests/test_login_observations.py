@@ -34,6 +34,7 @@ public final class LoginObservationCheck {
     Iterator<String> keys() { return values.keySet().iterator(); }
     int length() { return values.size(); }
     boolean has(String key) { return values.containsKey(key); }
+    boolean isNull(String key) { return values.get(key) == null; }
     Object get(String key) { if (!has(key)) throw new IllegalArgumentException(); return values.get(key); }
     JSONObject getJSONObject(String key) { return (JSONObject) get(key); }
     JSONArray getJSONArray(String key) { return (JSONArray) get(key); }
@@ -104,6 +105,11 @@ public final class LoginObservationCheck {
     invalid("username_selector", new JSONObject(Map.of("type", "textField", "label", "Account")));
     invalid("username_selector", new JSONObject(Map.of("type", "textField", "index", "0")));
     invalid("username_selector", new JSONObject(Map.of()));
+    JSONObject unobserved = plan(); unobserved.values.put("environment_selector", null);
+    check(new Plan(unobserved).environment == null);
+    JSONObject missing = plan(); missing.values.remove("environment_selector");
+    try { new Plan(missing); throw new AssertionError("missing environment selector accepted"); }
+    catch (Failure failure) { check(failure.code.equals("invalid_plan")); }
     AccessibilityNodeInfo user = new AccessibilityNodeInfo(true, false), pass = new AccessibilityNodeInfo(true, true);
     AccessibilityNodeInfo button = new AccessibilityNodeInfo(false, false); button.clickable = true; button.label = "Sign in";
     Tree tree = new Tree(); tree.nodes = new ArrayList<>(List.of(user, pass, button));
@@ -209,6 +215,60 @@ public final class LoginObservationCheck {
 }
 '''
         self._check_java(harness, "login-observations")
+
+    def test_null_environment_selector_reports_unobserved_without_reading_screen(self):
+        source = (android.SKILL_DIR / "android/SecureInput.java").read_text()
+        environment = "        void ensureEnvironment(" + source.split("        void ensureEnvironment(", 1)[1].split("        boolean hasSuccessMarker(", 1)[0]
+        self._check_java(r'''
+import java.util.*;
+public final class LoginObservationCheck {
+  static class Failure extends Exception {
+    final String code;
+    Failure(String code) { this.code = code; }
+  }
+  static class AccessibilityNodeInfo {
+    boolean selected;
+    boolean isEditable() { return false; }
+    boolean isPassword() { return false; }
+    boolean isSelected() { return selected; }
+    boolean isCheckable() { return false; }
+    boolean isChecked() { return false; }
+  }
+  static class Selector {
+    final String value;
+    Selector(String value) { this.value = value; }
+  }
+  static class Plan { String appId = "org.example.fixture"; Selector environment; }
+  static class Tree implements AutoCloseable {
+    static int captures;
+    static Map<String, List<AccessibilityNodeInfo>> visible = new HashMap<>();
+    static Tree capture(Object automation, String appId) { captures++; return new Tree(); }
+    List<AccessibilityNodeInfo> find(Selector selector, String appId) { return visible.getOrDefault(selector.value, List.of()); }
+    public void close() {}
+  }
+  static class Session {
+    Object automation = new Object(); Plan plan = new Plan(); boolean environmentVerified = true;
+    AccessibilityNodeInfo[] login(Tree tree, boolean requireButton) {
+      return new AccessibilityNodeInfo[] {new AccessibilityNodeInfo(), new AccessibilityNodeInfo(), new AccessibilityNodeInfo()};
+    }
+''' + environment + r'''
+  }
+  static void check(boolean condition) { if (!condition) throw new AssertionError(); }
+  public static void main(String[] args) throws Exception {
+    Session session = new Session();
+    session.ensureEnvironment(false);
+    check(!session.environmentVerified && Tree.captures == 0);
+    session.plan.environment = new Selector("environment");
+    AccessibilityNodeInfo button = new AccessibilityNodeInfo();
+    Tree.visible.put("environment", List.of(button));
+    try { session.ensureEnvironment(false); throw new AssertionError("unselected environment accepted"); }
+    catch (Failure failure) { check(failure.code.equals("environment_unverifiable")); }
+    button.selected = true;
+    session.ensureEnvironment(false);
+    check(session.environmentVerified && Tree.captures == 2);
+  }
+}
+''', "unobserved-environment")
 
     def _check_java(self, harness, name):
         directory = android.build_directory().parent / "JVMChecks"

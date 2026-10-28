@@ -401,6 +401,36 @@ class NativeAdapterTests(unittest.TestCase):
                     self.assertEqual(store.Keychain().login({"id": "sample", "keychain_ref": REF}, {"platform": "ios"}), response)
                 run.assert_called_once()
 
+    def test_success_environment_evidence_must_match_whether_profile_observes_environment(self):
+        record = {"id": "sample", "keychain_ref": REF}
+        simulator = "11111111-2222-3333-4444-AAAAAAAAAAAA"
+        cases = [
+            ({"platform": "ios", "environment_selector": None}, {"status": "authenticated", "environment_verified": False}, False),
+            ({"platform": "ios", "environment_selector": None}, {"status": "authenticated", "environment_verified": True}, True),
+            ({"platform": "ios", "environment_selector": None}, {"status": "authenticated"}, True),
+            ({"platform": "ios", "environment_selector": {"label": "Staging"}}, {"status": "authenticated", "environment_verified": False}, True),
+            ({"platform": "ios", "environment_selector": {"label": "Staging"}}, {"status": "authenticated", "environment_verified": True}, False),
+            ({"platform": "ios"}, {"status": "authenticated", "environment_verified": False}, True),
+        ]
+        for plan, response, rejected in cases:
+            with self.subTest(plan=plan, response=response), patch.object(
+                    store.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(response))):
+                if rejected:
+                    with self.assertRaises(store.KeychainError):
+                        store.Keychain().login(record, plan)
+                else:
+                    self.assertEqual(store.Keychain().login(record, plan), response)
+        unobserved = {"platform": "ios", "device": simulator, "environment_selector": None}
+        for response, rejected in [({"status": "ready", "environment_verified": False}, False),
+                                   ({"status": "ready", "environment_verified": True}, True)]:
+            with self.subTest(response=response), patch.object(
+                    store.subprocess, "run", return_value=Mock(returncode=0, stdout=json.dumps(response))):
+                if rejected:
+                    with self.assertRaises(store.KeychainError):
+                        store.Keychain().login({}, unobserved, preflight_only=True)
+                else:
+                    self.assertEqual(store.Keychain().login({}, unobserved, preflight_only=True), response)
+
     def test_login_accepts_fixed_ui_failure_reasons_without_exposing_values(self):
         for code in ["APP_NOT_FOREGROUND", "LOGIN_VIEW_STILL_PRESENT", "SUCCESS_MARKER_MISSING",
                      "SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE"]:

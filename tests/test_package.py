@@ -24,7 +24,7 @@ class ArchiveTests(unittest.TestCase):
         self.root.mkdir()
         (self.root / '.claude-plugin').mkdir()
         for name in ['plugin.json', '.claude-plugin/plugin.json']:
-            (self.root / name).write_text(json.dumps({'name':'mobile-qa', 'version':'0.3.0'}))
+            (self.root / name).write_text(json.dumps({'name':'mobile-qa', 'version':'0.3.1'}))
         release.write_inventory(self.root)
         self.output = Path(self.temp.name) / 'output'
 

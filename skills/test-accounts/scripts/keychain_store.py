@@ -271,9 +271,11 @@ class Keychain:
                 raise ValueError
             if "environment_verified" in data and type(data["environment_verified"]) is not bool:
                 raise ValueError
-            if data["status"] == "authenticated" and data.get("environment_verified") is not True:
+            # 환경 제어 없음(null)으로 등록한 프로필은 화면 환경을 관측하지 않으므로 false만 받는다.
+            observed = plan.get("environment_selector", {}) is not None
+            if data["status"] == "authenticated" and data.get("environment_verified") is not observed:
                 raise ValueError
-            if preflight_only and ((data["status"] == "ready" and data.get("environment_verified") is not True)
+            if preflight_only and ((data["status"] == "ready" and data.get("environment_verified") is not observed)
                                    or (data["status"] == "already_authenticated" and data.get("environment_verified") is not False)):
                 raise ValueError
             if data["status"] == "already_authenticated" and data.get("environment_verified") is True:

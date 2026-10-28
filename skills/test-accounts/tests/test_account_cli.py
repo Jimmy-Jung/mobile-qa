@@ -729,6 +729,25 @@ class AccountCLITests(unittest.TestCase):
         self.keychain.update.assert_not_called()
         self.mocks[3].assert_not_called()
 
+    def test_login_without_environment_control_succeeds_with_unobserved_marker(self):
+        self.catalog.find.return_value = {"status": "selected", "candidates": [self.login_record()]}
+        unobserved = lambda project, environment, platform, device, **options: {
+            "device": device, "environment": environment, "app_id": "org.example.sample", "environment_selector": None}
+        with patch.object(cli, "build_login_plan", side_effect=unobserved):
+            for response, expected_code in [({"status": "authenticated", "environment_verified": False}, 0),
+                                            ({"status": "authenticated"}, 1),
+                                            ({"status": "already_authenticated", "environment_verified": False}, 1),
+                                            ({"status": "failed", "code": "SUCCESS_NOT_OBSERVED", "environment_verified": False}, 1)]:
+                with self.subTest(response=response):
+                    self.keychain.login.return_value = response
+                    code, result = self.run_cli(self.login_args())
+                    self.assertEqual((code, result), (expected_code, {
+                        **response, "account": "first", "environment_check": "not_configured"}))
+        self.keychain.login.return_value = {"status": "authenticated", "environment_verified": False}
+        code, result = self.run_cli(self.login_args())
+        self.assertEqual(code, 1)
+        self.assertNotIn("environment_check", result)
+
     def test_login_explicit_empty_alias_is_not_automatic_selection(self):
         self.catalog.find.return_value = {"status": "selected", "candidates": [self.login_record()]}
         code, result = self.run_cli(self.login_args("--account", ""))

@@ -51,6 +51,8 @@ struct LoginPlan {
     let environment: String
     let timeout: Int
     let metadata: [String: Any]
+    // null environment_selector means the reviewed profile declares no on-screen environment control.
+    var observesEnvironment: Bool { !(metadata["environment_selector"] is NSNull) }
 
     static let profileKeys: Set<String> = ["schema_version", "name", "platform", "app_id", "environment", "role",
         "username_selector", "password_selector", "submit_selector", "environment_selector", "success_selectors", "timeout_ms"]
@@ -140,12 +142,14 @@ struct LoginPlan {
               let success = profile["success_selectors"] as? [[String: String]], (1...8).contains(success.count) else { return false }
         var selectors: [[String: String]] = []
         for key in ["username_selector", "password_selector", "submit_selector", "environment_selector"] {
+            if key == "environment_selector", profile[key] is NSNull { continue }
             guard let selector = profile[key] as? [String: String] else { return false }
             selectors.append(selector)
         }
+        let successStart = selectors.count
         selectors += success
         if let navigation = profile["environment_navigation"] {
-            guard platform == "ios", let object = navigation as? [String: Any],
+            guard platform == "ios", !(profile["environment_selector"] is NSNull), let object = navigation as? [String: Any],
                   Set(object.keys) == ["open_selector", "close_selector", "open_gesture", "select_if_needed"],
                   let gesture = object["open_gesture"] as? String, ["tap", "long_press"].contains(gesture),
                   let selection = object["select_if_needed"] as? NSNumber,
@@ -157,7 +161,7 @@ struct LoginPlan {
         for (index, selector) in selectors.enumerated() {
             guard selector.count == 1, let (key, value) = selector.first,
                   ((platform == "ios" ? ["identifier", "label", "placeholder"] : ["identifier", "label"]).contains(key)
-                    || (key == "tab_button_label" && platform == "ios" && index >= 4 && index < 4 + success.count)
+                    || (key == "tab_button_label" && platform == "ios" && index >= successStart && index < successStart + success.count)
                     || (key == "type" && ((index == 0 && value == "textField") || (index == 1 && value == "secureTextField")))),
                   !value.isEmpty, value.utf8.count <= 256,
                   !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
@@ -461,15 +465,16 @@ enum SecureLogin {
             temporaryDirectory: DriverPins.workRoot + "/tmp/")
         defer { child.stop() }
         try child.send(JSONSerialization.data(withJSONObject: plan.metadata), deadline: deadline)
-        let prepared = try androidOutcome(child.receive(deadline: deadline))
+        let prepared = try androidOutcome(child.receive(deadline: deadline), observesEnvironment: plan.observesEnvironment)
         if prepared["status"] as? String == "already_authenticated" { return prepared }
-        guard prepared["status"] as? String == "ready", prepared["environment_verified"] as? Bool == true else {
+        guard prepared["status"] as? String == "ready", prepared["environment_verified"] as? Bool == plan.observesEnvironment else {
             return prepared
         }
         let secret = try credentials()
         do {
             try child.send(secret, deadline: SecureIO.now + 5)
-            let outcome = try androidOutcome(child.receive(deadline: SecureIO.now + max(15, Double(plan.timeout) / 1000 + 5)))
+            let outcome = try androidOutcome(child.receive(deadline: SecureIO.now + max(15, Double(plan.timeout) / 1000 + 5)),
+                                             observesEnvironment: plan.observesEnvironment)
             guard outcome["status"] as? String != "ready" else {
                 throw SecureLoginFailure(code: "transport_response_invalid")
             }
@@ -480,7 +485,7 @@ enum SecureLogin {
         }
     }
 
-    private static func androidOutcome(_ object: [String: Any]) throws -> [String: Any] {
+    private static func androidOutcome(_ object: [String: Any], observesEnvironment: Bool) throws -> [String: Any] {
         let allowedKeys: Set<String> = ["status", "code", "environment_verified", "cleanup"]
         let statuses = ["ready", "already_authenticated", "authenticated", "not_ready", "failed", "uncertain", "error"]
         guard Set(object.keys).isSubset(of: allowedKeys),
@@ -494,7 +499,7 @@ enum SecureLogin {
             ["cleared", "failed", "unavailable", "unconfirmed"].contains(value) else {
             throw SecureLoginFailure(code: "transport_response_invalid")
         } }
-        if ["ready", "authenticated"].contains(status), object["environment_verified"] as? Bool != true {
+        if ["ready", "authenticated"].contains(status), object["environment_verified"] as? Bool != observesEnvironment {
             throw SecureLoginFailure(code: "transport_response_invalid")
         }
         var result: [String: Any] = ["status": status]
@@ -629,7 +634,7 @@ enum SecureLogin {
         guard let prepared else { throw SecureLoginFailure(code: "ios_runner_unavailable") }
         if preflightOnly { return prepared }
         if prepared["status"] as? String == "already_authenticated" { return prepared }
-        guard prepared["status"] as? String == "ready", prepared["environment_verified"] as? Bool == true else {
+        guard prepared["status"] as? String == "ready", prepared["environment_verified"] as? Bool == plan.observesEnvironment else {
             return prepared
         }
         guard child.isRunning else { throw SecureLoginFailure(code: "ios_runner_unavailable") }
@@ -833,7 +838,7 @@ enum SecureLogin {
         var safe: [String: Any] = ["status": status == "login_failed_or_unverified" ? "failed" : status]
         if let verified = object["environment_verified"] as? Bool { safe["environment_verified"] = verified }
         if status == "already_authenticated" { safe["environment_verified"] = false }
-        if ["ready", "authenticated"].contains(status), safe["environment_verified"] as? Bool != true {
+        if ["ready", "authenticated"].contains(status), safe["environment_verified"] as? Bool != plan.observesEnvironment {
             throw SecureLoginFailure(code: "transport_response_invalid")
         }
         if let code = object["code"] as? String {
@@ -879,15 +884,22 @@ enum SecureLogin {
             "username_selector": ["label": "Username"], "password_selector": ["label": "Password"],
             "submit_selector": ["label": "Sign in"], "success_selectors": [["label": "Home"]],
             "environment_selector": ["label": "Staging"]]
-        guard LoginPlan.validProfile(metadata) else { throw SecureLoginFailure(code: "login_safety_self_test_failed") }
+        guard LoginPlan.validProfile(metadata),
+              LoginPlan.validProfile(metadata.merging(["environment_selector": NSNull()]) { _, new in new }) else {
+            throw SecureLoginFailure(code: "login_safety_self_test_failed")
+        }
         for changed in [metadata.merging(["launch_arguments": ["--server"]]) { _, new in new },
                         metadata.merging(["server_url": "http://invalid.invalid"]) { _, new in new },
                         metadata.merging(["username_selector": ["label": "Password"]]) { _, new in new },
-                        metadata.merging(["environment_selector": ["label": "Sign in"]]) { _, new in new }] {
+                        metadata.merging(["environment_selector": ["label": "Sign in"]]) { _, new in new },
+                        metadata.filter { $0.key != "environment_selector" },
+                        metadata.merging(["platform": "ios", "environment_selector": NSNull(), "environment_navigation": [
+                            "open_selector": ["label": "Options"], "close_selector": ["label": "Close"],
+                            "open_gesture": "tap", "select_if_needed": false]]) { _, new in new }] {
             guard !LoginPlan.validProfile(changed) else { throw SecureLoginFailure(code: "login_safety_self_test_failed") }
         }
         var rejected = false
-        do { _ = try androidOutcome(["status": "failed", "code": "untrusted_raw_response"]) } catch { rejected = true }
+        do { _ = try androidOutcome(["status": "failed", "code": "untrusted_raw_response"], observesEnvironment: true) } catch { rejected = true }
         guard rejected else { throw SecureLoginFailure(code: "login_safety_self_test_failed") }
         let key = SymmetricKey(size: .bits256)
         let fixture = Data("synthetic-response".utf8)

@@ -133,6 +133,7 @@ private struct SecureAccountPlan {
   let password_selector: SecureAccountSelector
   let submit_selector: SecureAccountSelector
   let success_selectors: [SecureAccountSelector]
+  let environment_selector: SecureAccountSelector? = decoded(#"{"label":"Staging"}"#)
   let timeout_ms = 1000
 }
 private struct SecureAccountResult {

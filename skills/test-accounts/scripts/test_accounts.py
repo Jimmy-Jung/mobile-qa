@@ -241,7 +241,9 @@ def login(args, catalog):
         statuses = {"ready", "already_authenticated", "error", "uncertain"}
     if not isinstance(response, dict) or response.get("status") not in statuses:
         raise KeychainError("로그인 도구 응답 형식이 올바르지 않습니다.")
-    if args.preflight_only and ((response["status"] == "ready" and response.get("environment_verified") is not True)
+    # 환경 제어 없음(null)으로 등록한 프로필은 화면 환경을 관측하지 않는다. 호출자는 빌드 근거로 환경을 확인한다.
+    observed = plan.get("environment_selector", {}) is not None
+    if args.preflight_only and ((response["status"] == "ready" and response.get("environment_verified") is not observed)
                                or (response["status"] == "already_authenticated" and response.get("environment_verified") is not False)):
         raise KeychainError("로그인 준비 확인 응답의 환경 증거가 올바르지 않습니다.")
     if response["status"] == "already_authenticated" and response.get("environment_verified") is True:
@@ -251,6 +253,8 @@ def login(args, catalog):
         if type(response["environment_verified"]) is not bool:
             raise KeychainError("로그인 환경 확인 응답 형식이 올바르지 않습니다.")
         result["environment_verified"] = response["environment_verified"]
+    if not observed:
+        result["environment_check"] = "not_configured"
     if "code" in response:
         if response["code"] not in LOGIN_CODES:
             raise KeychainError("로그인 오류 코드 형식이 올바르지 않습니다.")
@@ -342,15 +346,16 @@ def main(argv=None):
                 result = {"accounts": [public_record(item) for item in catalog.list(project_key(args.project) if args.project else None)]}
             print(json.dumps(result, ensure_ascii=False))
             if args.command == "login":
+                # not_configured는 login()이 null 프로필에서만 붙이는 표시다. 서버 환경 검증을 뜻하지 않는다.
+                environment_ready = (result.get("environment_verified") is True
+                                     or (result.get("environment_check") == "not_configured"
+                                         and result.get("environment_verified") is False))
                 if args.preflight_only:
                     return 0 if (
-                        (result["status"] == "ready" and result.get("environment_verified") is True)
+                        (result["status"] == "ready" and environment_ready)
                         or (result["status"] == "already_authenticated" and result.get("environment_verified") is False)
                     ) else 1
-                return 0 if (
-                    result["status"] == "authenticated"
-                    and result.get("environment_verified") is True
-                ) else 1
+                return 0 if result["status"] == "authenticated" and environment_ready else 1
             return 0
     except Cancelled:
         print(json.dumps({"status": "cancelled"}))

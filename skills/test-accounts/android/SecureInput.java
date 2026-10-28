@@ -212,6 +212,7 @@ public final class SecureInput {
         final Selector username;
         final Selector password;
         final Selector submit;
+        /** null when the reviewed profile declares no on-screen environment control. */
         final Selector environment;
         final List<Selector> success;
         final int timeoutMs;
@@ -229,13 +230,15 @@ public final class SecureInput {
             username = new Selector(object.getJSONObject("username_selector"), appId);
             password = new Selector(object.getJSONObject("password_selector"), appId);
             submit = new Selector(object.getJSONObject("submit_selector"), appId);
-            JSONObject environmentObject = object.getJSONObject("environment_selector");
-            environment = new Selector(environmentObject, appId);
+            if (!object.has("environment_selector")) throw new Failure("invalid_plan");
+            environment = object.isNull("environment_selector")
+                    ? null : new Selector(object.getJSONObject("environment_selector"), appId);
             if ((username.type != null && !username.type.equals("textField"))
                     || (password.type != null && !password.type.equals("secureTextField"))
-                    || submit.type != null || environment.type != null) throw new Failure("invalid_plan");
+                    || submit.type != null || (environment != null && environment.type != null)) throw new Failure("invalid_plan");
             if (username.same(password) || username.same(submit) || password.same(submit)
-                    || environment.same(username) || environment.same(password) || environment.same(submit)) {
+                    || (environment != null && (environment.same(username) || environment.same(password)
+                            || environment.same(submit)))) {
                 throw new Failure("invalid_plan");
             }
             Object timeout = object.get("timeout_ms");
@@ -249,7 +252,8 @@ public final class SecureInput {
             for (int index = 0; index < array.length(); index++) {
                 Selector selector = new Selector(array.getJSONObject(index), appId);
                 if (selector.type != null) throw new Failure("invalid_plan");
-                if (selector.same(username) || selector.same(password) || selector.same(submit) || selector.same(environment)) {
+                if (selector.same(username) || selector.same(password) || selector.same(submit)
+                        || (environment != null && selector.same(environment))) {
                     throw new Failure("invalid_plan");
                 }
                 for (Selector existing : success) {
@@ -392,6 +396,11 @@ public final class SecureInput {
         }
 
         void ensureEnvironment(boolean allowSelection) throws Failure {
+            // No environment control on screen: report it as unobserved; the caller confirms it from build evidence.
+            if (plan.environment == null) {
+                environmentVerified = false;
+                return;
+            }
             try (Tree tree = Tree.capture(automation, plan.appId)) {
                 AccessibilityNodeInfo target = environmentNode(tree);
                 environmentVerified = target.isSelected() || (target.isCheckable() && target.isChecked());

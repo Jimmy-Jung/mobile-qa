@@ -49,10 +49,10 @@ jobs:
           paths = ['plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.agents/plugins/marketplace.json']
           manifests = [json.loads((root / path).read_text()) for path in paths]
           assert manifests[0]['name'] == manifests[1]['name'] == 'mobile-qa'
-          assert manifests[0]['version'] == manifests[1]['version'] == '0.3.0'
+          assert manifests[0]['version'] == manifests[1]['version'] == '0.3.1'
           for catalog in manifests[2:]:
               assert catalog['plugins'][0]['name'] == 'mobile-qa'
-              assert catalog['plugins'][0]['version'] == '0.3.0'
+              assert catalog['plugins'][0]['version'] == '0.3.1'
           for path in root.glob('skills/*/SKILL.md'):
               value = path.read_text().split('---', 2)
               data = yaml.safe_load(value[1])

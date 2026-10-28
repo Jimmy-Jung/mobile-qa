@@ -78,6 +78,13 @@ class ProfileTests(unittest.TestCase):
             self.load(device="synthetic-physical-phone")
         self.assertEqual(getattr(failure.exception, "code", None), "profile_scope_mismatch")
 
+    def test_null_environment_selector_survives_trusted_registration(self):
+        self.source.write_text(json.dumps({**PROFILE, "environment_selector": None}))
+        self.register()
+        plan = self.load()
+        self.assertIn("environment_selector", plan)
+        self.assertIsNone(plan["environment_selector"])
+
     def test_tab_button_success_selector_survives_trusted_registration_without_widening(self):
         selector = {"tab_button_label": "Home"}
         self.source.write_text(json.dumps({**PROFILE, "success_selectors": [selector]}))
@@ -144,7 +151,7 @@ class ProfileTests(unittest.TestCase):
             {**PROFILE, "shell": "password-sentinel"},
             {**PROFILE, "launch_arguments": ["--server"]},
             {**PROFILE, "retry": 2},
-            {**PROFILE, "environment_selector": None},
+            {key: value for key, value in PROFILE.items() if key != "environment_selector"},
             {**PROFILE, "submit_selector": PROFILE["username_selector"]},
             {**PROFILE, "success_selectors": [PROFILE["password_selector"]]},
             {**PROFILE, "success_selectors": [PROFILE["success_selectors"][0]] * 2},

@@ -1,6 +1,6 @@
 # Mobile QA operations reference
 
-Author: JunyoungJung · 2026-10-27 · Version: 0.3.0
+Author: JunyoungJung · 2026-10-28 · Version: 0.3.1
 
 This document holds the detailed procedures that agents and operators follow. For what the plugin is and why it exists, see the [README](../README.en.md). Paths and commands apply to the supported macOS host.
 
@@ -174,7 +174,7 @@ claude plugin marketplace add Jimmy-Jung/mobile-qa
 claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 ```
 
-For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.3.0 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.0) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
+For a local checkout or extracted ZIP, replace the marketplace source with the actual plugin root path. The [v0.3.1 release](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.1) provides a ZIP and SHA-256 checksum. The portable root manifest and Claude compatibility manifest share the same identity; GitHub distribution is separate from inclusion in a host's official directory. [7], [8], [9]
 
 ### First setup and readiness
 
@@ -235,7 +235,7 @@ A login profile is a secret-free JSON contract for the app, environment, input f
 
 Check target support before preparing or building input tools. For a UUID-form iOS target, the dedicated `login` checks the `simctl` inventory before accessing the account catalog, profile, or helper. Resolve `login_target_unverified` or `ios_target_unverified` by verifying the exact target, and `simulator_not_booted` by checking its availability and boot state. Choose Simulator preparation or another protected path for that same target. Prepare supported targets' profiles and existing tools within the same login request. Do not impose the dedicated iOS helper's environment-button or profile requirements on other paths. Avoid repeating the same failure, but do not end login merely because preparation is missing. If no automatic path exists, request only the necessary direct input and keep the login-dependent work in `사용자 입력 대기` (waiting for user input). Confirm input has ended and fields are cleared before resuming observation, then verify authentication and the actual environment and resume the original QA. Creating a new input engine, runner, synthetic app, or app modification is a separate development task, not a login prerequisite. Follow the [login recovery procedure](../skills/test-accounts/SKILL.md#막혔을-때의-복구).
 
-The dedicated iOS input tool requires one enabled, hittable, selected button for environment verification. If the current screen does not satisfy this contract, report the specific failure code without modifying the app to fit it. Even when a user supplies credentials in chat, do not pass plaintext through ordinary CUA `setValue`/`type`, `fill`, JavaScript, shell arguments, environment variables, or the clipboard. Use an existing protected input path verified for the current target; otherwise continue through the direct user-input recovery procedure above. Pause screen reads, screenshots, and recording during direct user input. Do not require unnecessary account re-registration. The default helper path does not switch environments or repeat uncertain submissions. A reviewed Simulator `environment_navigation` may open its fixed options screen, verify the desired selected button, and close it; only explicit `select_if_needed:true` permits selecting that desired environment before input. Preserve valid authenticated sessions. [3]
+The dedicated iOS input tool requires one enabled, hittable, selected button for environment verification. An app with no environment control on its login or options screen registers `environment_selector: null` after its environment is confirmed from build evidence; results then report `environment_verified:false` with `environment_check:"not_configured"`. If the current screen does not satisfy this contract, report the specific failure code without modifying the app to fit it. Even when a user supplies credentials in chat, do not pass plaintext through ordinary CUA `setValue`/`type`, `fill`, JavaScript, shell arguments, environment variables, or the clipboard. Use an existing protected input path verified for the current target; otherwise continue through the direct user-input recovery procedure above. Pause screen reads, screenshots, and recording during direct user input. Do not require unnecessary account re-registration. The default helper path does not switch environments or repeat uncertain submissions. A reviewed Simulator `environment_navigation` may open its fixed options screen, verify the desired selected button, and close it; only explicit `select_if_needed:true` permits selecting that desired environment before input. Preserve valid authenticated sessions. [3]
 
 ## Reading the results
 

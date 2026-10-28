@@ -87,6 +87,21 @@ class LoginPlanTests(unittest.TestCase):
             validate_profile({key: value for key, value in {**PROFILE, "environment_navigation": NAVIGATION}.items()
                               if key != "environment_selector"})
 
+    def test_null_environment_selector_declares_no_environment_control(self):
+        for platform in ["ios", "android"]:
+            profile = {**PROFILE, "platform": platform, "environment_selector": None,
+                       "username_selector": {"label": "Username"}, "password_selector": {"label": "Password"},
+                       "submit_selector": {"label": "Sign in"}, "success_selectors": [{"label": "Home"}]}
+            with self.subTest(platform=platform):
+                self.assertEqual(validate_profile(copy.deepcopy(profile)), profile)
+        with self.assertRaises(ValueError):
+            validate_profile({**PROFILE, "environment_selector": None, "environment_navigation": NAVIGATION})
+        with self.assertRaises(ValueError):
+            validate_profile({key: value for key, value in PROFILE.items() if key != "environment_selector"})
+        for value in [{}, "Staging", []]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_profile({**PROFILE, "environment_selector": value})
+
     def test_android_identifier_requires_same_app_resource(self):
         profile = {**PROFILE, "platform": "android", "username_selector": {"identifier": "org.example.sample:id/username"}, "password_selector": {"identifier": "org.example.sample:id/password"}, "submit_selector": {"identifier": "org.example.sample:id/submit"}, "success_selectors": [{"identifier": "org.example.sample:id/home"}]}
         self.assertEqual(validate_profile(profile), profile)

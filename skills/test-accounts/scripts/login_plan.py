@@ -58,6 +58,11 @@ def validate_profile(profile):
     if not isinstance(success, list) or not 1 <= len(success) <= 8:
         raise ValueError("로그인 성공 화면을 명시하세요.")
     selector_keys = ["username_selector", "password_selector", "submit_selector", "environment_selector"]
+    if profile["environment_selector"] is None:
+        # null은 검토 결과 로그인·옵션 화면에 환경 선택 제어가 없다는 선언이다. 키 누락은 계속 거부한다.
+        if "environment_navigation" in profile:
+            raise ValueError("환경 선택 절차에는 환경 버튼 selector가 필요합니다.")
+        selector_keys.remove("environment_selector")
     selectors = [profile[key] for key in selector_keys] + success
     fields = selector_keys + ["success_selector"] * len(success)
     if "environment_navigation" in profile:

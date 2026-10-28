@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "mobile-qa",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "source": "./",
       "description": "Local iOS, Android and Flutter QA, Simulator/Emulator support, pixel review, and protected test-account login."
     }

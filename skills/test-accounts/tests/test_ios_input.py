@@ -696,6 +696,23 @@ for identifier in ["username", "password", "submit"] {
 environment.identifier = "environment"
 XCUIApplication.elements["username"] = []
 assert(runner.preflight(request).code == "ENVIRONMENT_FIELDS_NOT_READY")
+private func preflightRequest(_ plan: [String: Any]) -> SecureAccountRequest? {
+  SecureAccountRequest.decode(try! JSONSerialization.data(withJSONObject: ["secureAccountProtocol": "agent-test-accounts-v1",
+    "nonce": "11111111-2222-3333-4444-555555555555", "action": "preflight", "plan": plan]))
+}
+private var unobservedPlan = metadata
+unobservedPlan["environment_selector"] = NSNull()
+private let unobserved = preflightRequest(unobservedPlan)!
+XCUIApplication.elements = ["username": [username], "password": [password], "submit": [submit]]
+private let unobservedReady = runner.preflight(unobserved)
+assert(unobservedReady.status == "ready" && unobservedReady.code == "LOGIN_VIEW_READY" && !unobservedReady.environmentVerified)
+XCUIApplication.elements["username"] = []
+assert(runner.preflight(unobserved).code == "ENVIRONMENT_FIELDS_NOT_READY")
+private var missingPlan = metadata
+missingPlan.removeValue(forKey: "environment_selector")
+assert(preflightRequest(missingPlan) == nil)
+unobservedPlan["environment_selector"] = "Staging"
+assert(preflightRequest(unobservedPlan) == nil)
 ''')
 
     def _check_swift(self, checks):

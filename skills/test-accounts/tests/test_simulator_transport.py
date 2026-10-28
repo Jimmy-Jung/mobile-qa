@@ -144,6 +144,7 @@ struct SessionPlan {
   let device = "11111111-2222-4333-8444-555555555555"
   let appID = "org.example.synthetic"
   let timeout = 1000
+  let observesEnvironment = true
 }
 enum SessionCheck {
   static var actions: [String] = []

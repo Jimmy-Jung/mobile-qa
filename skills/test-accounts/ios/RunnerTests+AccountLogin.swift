@@ -109,7 +109,8 @@ private struct SecureAccountPlan: Decodable {
   let password_selector: SecureAccountSelector
   let submit_selector: SecureAccountSelector
   let success_selectors: [SecureAccountSelector]
-  let environment_selector: SecureAccountSelector
+  /// nil when the reviewed profile declares no on-screen environment control (explicit JSON null).
+  let environment_selector: SecureAccountSelector?
   let timeout_ms: Int
   let release_digest: String
   let environment_navigation: SecureAccountNavigation?
@@ -118,7 +119,8 @@ private struct SecureAccountPlan: Decodable {
     #if !targetEnvironment(simulator)
     guard environment_navigation == nil else { return false }
     #endif
-    let selectors = [username_selector, password_selector, submit_selector, environment_selector] + success_selectors
+    let environment = environment_selector.map { [$0] } ?? []
+    let selectors = [username_selector, password_selector, submit_selector] + environment + success_selectors
       + (environment_navigation.map { [$0.open_selector, $0.close_selector] } ?? [])
     return app_id.utf8.count <= 200
       && app_id.range(of: #"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*)+\z"#, options: .regularExpression) != nil
@@ -127,9 +129,9 @@ private struct SecureAccountPlan: Decodable {
       && (1...8).contains(success_selectors.count) && selectors.allSatisfy(\.valid)
       && (username_selector.type == nil || username_selector.type == "textField")
       && (password_selector.type == nil || password_selector.type == "secureTextField")
-      && ([submit_selector, environment_selector] + success_selectors).allSatisfy { $0.type == nil }
-      && [username_selector, password_selector, submit_selector, environment_selector].allSatisfy { $0.tabButtonLabel == nil }
-      && (environment_navigation?.valid ?? true)
+      && ([submit_selector] + environment + success_selectors).allSatisfy { $0.type == nil }
+      && ([username_selector, password_selector, submit_selector] + environment).allSatisfy { $0.tabButtonLabel == nil }
+      && (environment_navigation.map { $0.valid && environment_selector != nil } ?? true)
       && (1000...15000).contains(timeout_ms)
       && selectors.enumerated().allSatisfy { index, selector in
         !selectors.prefix(index).contains { $0.fields == selector.fields }
@@ -140,7 +142,8 @@ private struct SecureAccountPlan: Decodable {
     var metadata: [String: Any] = [
       "app_id": app_id, "username_selector": username_selector.fields,
       "password_selector": password_selector.fields, "submit_selector": submit_selector.fields,
-      "success_selectors": success_selectors.map(\.fields), "environment_selector": environment_selector.fields,
+      "success_selectors": success_selectors.map(\.fields),
+      "environment_selector": environment_selector.map { $0.fields as Any } ?? NSNull(),
       "timeout_ms": timeout_ms, "release_digest": release_digest, "nonce": nonce,
     ]
     if let navigation = environment_navigation { metadata["environment_navigation"] = navigation.metadata }
@@ -432,7 +435,8 @@ extension RunnerTests {
   ) -> String? {
     let fields = secureAccountFields(plan, app: app)
     guard !requireFields || fields != nil else { return "ENVIRONMENT_FIELDS_NOT_READY" }
-    let matches = secureAccountMatches(plan.environment_selector, in: app)
+    guard let environment = plan.environment_selector else { return nil }
+    let matches = secureAccountMatches(environment, in: app)
     guard matches.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
     let target = matches[0]
     let aliasesLoginField = [plan.username_selector, plan.password_selector, plan.submit_selector].contains { selector in
@@ -466,13 +470,13 @@ extension RunnerTests {
   private func secureAccountPrepareNavigation(
     _ plan: SecureAccountPlan, app: XCUIApplication, binding: String, operation: SecureAccountOperation
   ) -> String? {
-    guard let navigation = plan.environment_navigation,
+    guard let navigation = plan.environment_navigation, let environment = plan.environment_selector,
       let fields = secureAccountFields(plan, app: app) else { return "LOGIN_VIEW_NOT_READY" }
     let open = secureAccountMatches(navigation.open_selector, in: app)
     guard open.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
     let others = [fields.0, fields.1, fields.2]
       + secureAccountMatches(navigation.close_selector, in: app)
-      + secureAccountMatches(plan.environment_selector, in: app)
+      + secureAccountMatches(environment, in: app)
       + plan.success_selectors.flatMap { secureAccountMatches($0, in: app) }
     guard !others.contains(where: { $0.isEqual(open[0]) }) else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
     guard [.image, .button].contains(open[0].elementType) else { return "ENVIRONMENT_NOT_BUTTON" }
@@ -482,12 +486,12 @@ extension RunnerTests {
     else { return "ENVIRONMENT_NOT_VERIFIED" }
     if navigation.open_gesture == "tap" { open[0].tap() } else { open[0].press(forDuration: 1.0) }
     guard secureAccountWait(plan, operation: operation, until: {
-      self.secureAccountMatches(plan.environment_selector, in: app).count == 1
+      self.secureAccountMatches(environment, in: app).count == 1
     }) else { return "ENVIRONMENT_NOT_UNIQUE" }
     if let failure = secureAccountChooseNavigationEnvironment(plan, app: app, operation: operation) { return failure }
     let close = secureAccountMatches(navigation.close_selector, in: app)
     guard close.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
-    let aliases = [fields.0, fields.1, fields.2, open[0]] + secureAccountMatches(plan.environment_selector, in: app)
+    let aliases = [fields.0, fields.1, fields.2, open[0]] + secureAccountMatches(environment, in: app)
       + plan.success_selectors.flatMap { secureAccountMatches($0, in: app) }
     guard !aliases.contains(where: { $0.isEqual(close[0]) }) else { return "ENVIRONMENT_ALIASES_LOGIN_FIELD" }
     guard close[0].elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
@@ -508,7 +512,8 @@ extension RunnerTests {
     if let failure = secureAccountEnvironmentFailure(plan, app: app, requireFields: false, requireSelected: false) {
       return failure
     }
-    let matches = secureAccountMatches(plan.environment_selector, in: app)
+    guard let environment = plan.environment_selector else { return "ENVIRONMENT_NOT_UNIQUE" }
+    let matches = secureAccountMatches(environment, in: app)
     guard matches.count == 1 else { return "ENVIRONMENT_NOT_UNIQUE" }
     let target = matches[0]
     guard target.elementType == .button else { return "ENVIRONMENT_NOT_BUTTON" }
@@ -529,9 +534,9 @@ extension RunnerTests {
   }
 
   private func secureAccountNavigationClosed(_ plan: SecureAccountPlan, app: XCUIApplication) -> Bool {
-    guard let navigation = plan.environment_navigation else { return true }
+    guard let navigation = plan.environment_navigation, let environment = plan.environment_selector else { return true }
     return (secureAccountMatches(navigation.close_selector, in: app)
-      + secureAccountMatches(plan.environment_selector, in: app)).allSatisfy { !$0.isHittable }
+      + secureAccountMatches(environment, in: app)).allSatisfy { !$0.isHittable }
   }
 
   private func secureAccountFields(_ plan: SecureAccountPlan, app: XCUIApplication, forCleanup: Bool = false) -> (XCUIElement, XCUIElement, XCUIElement)? {
@@ -582,7 +587,7 @@ extension RunnerTests {
     guard operation.canContinue
     else { return .error("ENVIRONMENT_NOT_VERIFIED") }
     if request.action == "preflight" {
-      return SecureAccountResult(status: "ready", code: "LOGIN_VIEW_READY", environmentVerified: true)
+      return SecureAccountResult(status: "ready", code: "LOGIN_VIEW_READY", environmentVerified: plan.environment_selector != nil)
     }
     guard let username = request.username, let password = request.password,
       secureAccountFields(plan, app: app) != nil
@@ -622,7 +627,8 @@ extension RunnerTests {
       }
       return SecureAccountResult(
         status: authenticated ? "authenticated" : "login_failed_or_unverified",
-        code: authenticated ? "SUCCESS_OBSERVED" : lastFailureCode, environmentVerified: authenticated
+        code: authenticated ? "SUCCESS_OBSERVED" : lastFailureCode,
+        environmentVerified: authenticated && plan.environment_selector != nil
       )
     }()
     if result.status != "authenticated" {
