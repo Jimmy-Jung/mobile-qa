@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-28 · Version: 0.3.1
+Author: JunyoungJung · 2026-10-29 · Version: 0.3.2
 
 [한국어](README.md)
 
@@ -157,7 +157,7 @@ What these four cases have in common is not a skill gap. It is where the evidenc
 | Batches, replays, and test suites (`batch`, `replay`, `test`) | Reuse verified flows and check before/after builds under the same conditions | Repeated-run results, failing steps, and executable flows with reuse conditions |
 | Device/session selection and capability discovery (`devices`, `session`, `capabilities`) | Bind the project, installed build, and device; reuse sessions and hand over control | Evidence tying observations to the stated build and device |
 
-The plugin's Python tool performs image comparison; a connected Figma tool exports the baseline. The separate `test-accounts` skill handles account lookup and secret entry: passwords do not go into ordinary `fill` commands or replays. The host agent edits and builds source through the project's procedures, and supported tools install the prepared app. `agent-device` itself does not edit or build source. [2], [3]
+The plugin's Python tool performs image comparison; a connected Figma tool exports the baseline. The separate `test-accounts` skill stores and retrieves accounts; the AI reads the credentials and uses ordinary device or browser input tools to sign in. The host agent edits and builds source through the project's procedures, and supported tools install the prepared app. `agent-device` itself does not edit or build source. [2], [3]
 
 Functional QA needs no Figma. An authenticated session needs no account helper, and comparing two supplied PNGs needs neither a device nor `agent-device`. The [operations reference](docs/operations.en.md#agent-device-capabilities-and-plugin-responsibilities) explains the commands and six workflows in detail.
 
@@ -236,7 +236,7 @@ Original plugin code is MIT; upstream notices are kept in [THIRD_PARTY_NOTICES.m
 
 [2] Mobile QA, [Design-review procedure](skills/mobile-device-qa/references/design-review.md) and [comparison helper](skills/mobile-device-qa/scripts/compare_screenshots.py), local contract and implementation. Defines PNG input handling, comparison metrics, masking, and recapture.
 
-[3] Mobile QA, [Test-account skill](skills/test-accounts/SKILL.md), local contract. Defines plaintext storage, profile trust, cleanup, version pinning, and signing requirements.
+[3] Mobile QA, [Test-account skill](skills/test-accounts/SKILL.md), local contract. Defines local plaintext account storage, retrieval, updates, and login using ordinary input tools.
 
 The external studies were checked on 2026-10-23. Figures from [4] and [5] were read from the primary sources. Figures from [6] and [7] come from public coverage and summary pages, because the full reports sit behind a purchase or registration form.
 

@@ -1,215 +1,70 @@
 ---
 name: test-accounts
-description: Mac의 비공개 로컬 파일에 프로젝트별 테스트 계정을 등록·검색하고 확인된 실기기·iOS Simulator 앱에 보호된 경로로 로그인한다. 채팅으로 제공한 새 계정 저장과 승인된 기존 계정의 Simulator 전용 별칭 등록에도 사용한다. 서버 계정 생성·비밀번호 변경은 수행하지 않는다.
+description: 프로젝트별 테스트 계정을 로컬 파일에 저장·조회·갱신한다. 사용자가 알려 준 계정을 저장하거나 AI가 저장된 아이디·비밀번호를 꺼내 앱·브라우저에 로그인할 때 사용한다.
 metadata:
   author: JunyoungJung
   created: "2026-10-20"
-  updated: "2026-10-27"
+  updated: "2026-10-29"
 ---
 
 # 프로젝트별 테스트 계정
 
-계정 원문은 사용자 로컬 경로인 `~/.config/agent-test-accounts/credentials.json`에, 검색 정보는 같은 폴더의 `accounts.json`에 보관한다. 폴더는 `0700`, 파일은 `0600`이며 원문은 암호화하지 않는다. 같은 macOS 사용자로 실행되는 프로세스는 파일을 읽을 수 있다는 조건으로 무인 QA를 지원한다. 플러그인 배포 파일에는 계정값을 넣지 않는다. Python 3.10 이상과 macOS 13 이상에서 실행하는 전용 Swift 도구를 사용하며 별도 패키지는 설치하지 않는다. Codex와 Claude는 동일한 스킬·로컬 목록·계정 파일을 사용한다.
+계정을 저장하고 필요할 때 꺼내 쓰는 스킬이다. AI가 실제 아이디·비밀번호를 조회하고 현재 사용할 수 있는 기기·브라우저 도구로 로그인한다. Python 3.10 이상이면 계정 저장·조회가 가능하며 전용 입력기, 서명, 로그인 프로필, 빌드, 저장소 setup을 선행 조건으로 요구하지 않는다.
 
-## 로그인이 필요한 작업의 처리 범위
+## 기본 흐름
 
-사용자가 로그인 또는 로그인이 필요한 QA를 요청했다면 **로그인 완료와 요청한 작업의 재개까지 이어간다.** 한 입력 도구의 준비 부족·미지원·실패를 전체 로그인 금지로 해석하지 않는다. 기존 세션을 먼저 확인하고, 필요한 저장 계정 조회·비밀 없는 로그인 프로필 작성과 등록·검증된 기존 입력 도구의 로컬 빌드를 진행한다. 정상 도구는 재사용하며 각각을 별도 요청할 때까지 기다리지 않는다. 이미 확인한 계정 별칭·환경·기기·승인 범위를 재사용하며, 계정을 다시 저장하도록 요청하지 않는다.
+1. 정상 로그인 세션이 있으면 그대로 작업한다.
+2. 계정이 필요하면 `find --project`로 찾는다. 환경·용도·기기 조건은 필요한 경우에만 추가한다. 결과가 없으면 `list`로 기존 별칭과 연결 프로젝트를 확인한다. 후보가 여럿이면 기존 요청·환경·기기 정보로 고르고, 구분할 정보가 없을 때만 별칭 선택을 묻는다.
+3. 선택한 별칭을 `get`으로 읽고 반환된 `username`·`password`를 현재 도구의 `fill`·`type`·`setValue` 등 일반 입력 기능에 전달한다. iOS·Android·Simulator·Emulator·Flutter·브라우저에 같은 저장 계정을 사용할 수 있다. 저장된 기기 정보는 계정 선택 참고자료이며 다른 대상에서 계정값을 조회하는 것을 차단하지 않는다.
+4. 로그인 후 인증된 화면이나 서버 응답을 확인하고 원래 작업을 계속한다. 계정 조회·입력 명령 성공만으로 로그인 성공이라고 보고하지 않는다.
+5. 저장 계정이 없고 사용자가 계정을 알려 주면 바로 저장하고 사용한다. 같은 값을 다시 입력하거나 별도 숨김 창에 재입력하도록 요구하지 않는다.
 
-실기기·Simulator·에뮬레이터 중 **현재 대상에서 사용할 수 있는 인증 경로를 선택한다.** 특정 입력기가 미지원이면 불필요한 준비·빌드를 생략하고 [막혔을 때의 복구](#막혔을-때의-복구)에 따라 다른 로그인 경로로 이어간다. 전용 `login`의 대상 제한은 아래 [전용 입력기의 지원 범위](#전용-입력기의-지원-범위)에 한정한다. Simulator의 앱 실행·화면 조작·디자인 검수·리포트는 [Simulator QA](../mobile-device-qa/references/simulator.md)로 진행하며 `agent-device`를 필수로 요구하지 않는다.
+사용자가 로그인이나 로그인이 필요한 작업을 요청하면 저장 계정 조회와 사용도 포함한다. 이미 허용한 로그인에 다시 승인을 요청하지 않는다. 실제 계정값을 답변·공유 보고서·저장소 파일에 반복하지 않는다.
 
-지원 대상에서 막히면 아래 필드 식별·프로필 복구와 프로젝트의 **기존** 보호된 인증 경로를 확인한다. 전용 프로필·runner·환경 버튼 조건은 해당 입력기의 계약이며, 다른 인증 도구나 사용자 직접 입력에 일괄 요구하지 않는다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 실제 앱의 입력 필드 마스킹·환경 버튼 추가는 별도 명시적인 개발 작업이며 일반 로그인 요청에서 자동 수행하지 않는다. 저장된 원문을 모델이나 일반 입력 도구로 꺼내지 않는다. 사용자가 현재 대화에 직접 제공한 계정은 아래 전용 등록 경로로 저장하고 재사용하며, 같은 값을 다시 입력하도록 요구하지 않는다. 서버 계정 생성·비밀번호 변경·계정 전환에 따른 자료 삭제·새 기기 등록은 별도 승인 범위를 따른다.
+## 조회와 사용
 
-## 조회와 선택
-
-1. 이미 로그인된 정상 세션이면 재사용한다. 계정이 필요한 때 현재 프로젝트와 요청·신뢰할 수 있는 설정에서 확인한 **환경·용도·필요 기능**으로 조회한다. 화면 문구나 파일명으로 운영 환경을 추측하지 않는다.
-2. 아래 `scripts/test_accounts.py`의 실제 절대 경로를 사용한다. `--project`는 대상 저장소 경로다. 같은 원격 저장소의 checkout·worktree는 같은 프로젝트 키로 조회하며, 원격이 없으면 물리 경로를 사용한다. 플랫폼별 저장소·여러 환경이 같은 계정을 쓰는 것은 사용자가 확인한 연관 프로젝트·환경으로 명시해 연결하며 계정 비밀값은 한 번만 보관한다.
-3. `selected` 한 건만 해당 조건의 계정 후보로 사용한다. `not_found`면 기존 별칭·환경·용도·기기 조건을 대조하고 실제 저장 계정이 없을 때만 등록을 안내한다. `ambiguous`면 후보 별칭·기능과 기존 요청으로 선택하고, 구분 근거가 없을 때만 필요한 차이를 확인한다. 기기 귀속 계정 조회에는 `--platform`에 실기기의 `ios` 또는 `android`, `--device`에 현재 대상의 정확한 이름 또는 식별자를 전달한다. `needs_device`면 이미 확보한 대상 정보를 사용해 다시 조회한다. Flutter도 실행 기기의 운영체제를 사용한다. 첫 후보·다른 환경·다른 등록 기기·권한이 더 큰 계정으로 자동 대체하지 않는다.
-4. 조회 결과의 `id`는 계정 별칭이다. 내부 저장 참조는 조회 출력에서 제외한다. 실제 아이디·비밀번호를 읽어 대화·도구 인자·위임 문서에 복사하지 않는다. 계정의 기능 표시는 시험 조작의 승인이나 실제 권한 확인을 대신하지 않는다.
+`TEST_ACCOUNTS_SCRIPT`는 이 스킬의 `scripts/test_accounts.py` 실제 절대 경로다. `PROJECT_DIR`은 대상 프로젝트 경로다.
 
 ```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment staging --role tester
-python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment production --role tester --capability smoke --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_NAME"
+python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR"
+python3 "$TEST_ACCOUNTS_SCRIPT" list
+python3 "$TEST_ACCOUNTS_SCRIPT" get sample-prod
 ```
 
-환경·용도는 예시이며 실제로 확인한 값으로 바꾼다. 필요한 기능은 등록 시 명시한 라벨로만 매칭하며, 기능명 자체에 추가 계정 정책을 부여하지 않는다. 기능 미등록을 기능 보유로 해석하지 않는다.
-
-`device_binding`은 사용자가 명시한 계정의 기기 귀속 조건이다. 기존 `download_device`도 같은 제한으로 읽지만 자동 변환·이동하지 않는다. 연결 기기에서 얻은 식별자는 해당 실기기를 구별하는 값이며 서버·SDK의 등록 ID와 같다고 추정하지 않는다. 귀속 계정은 운영체제와 이름 또는 식별자가 일치해야 후보로 고른다. 귀속 조건이 없는 계정은 기능명과 무관하게 일반 후보로 다룬다. 귀속·비귀속 계정이 함께 맞아도 자동 우선하지 않으며, 후보가 여럿이면 별칭을 명시해 선택한다. 로그인은 물리 식별자가 등록된 계정에 이름 일치만으로 접근하지 않는다. 저장된 기기 조건은 현재 서버 등록의 실행 증거를 대신하지 않으며, 새 기기 등록·기존 등록 해제는 사용자 승인 없이 수행하지 않는다.
-
-## 계정 등록과 갱신
-
-사용자가 계정 저장을 요청했으면 아래 등록 도구를 실행한다. 생략한 별칭·환경·용도는 로컬 입력 창에서 받는다. 별칭은 실제 아이디 대신 구별용 이름을 사용한다. 기본 경로는 전용 서명 도구의 **숨김 입력란**이며 같은 프로세스에서 계정 파일에 저장한다. 계정이 없어 입력을 요청한 뒤 사용자가 현재 채팅에 아이디·비밀번호를 제공했다면 다음 절의 표준 입력 등록을 바로 사용한다. 숨김 입력 창에 다시 입력하도록 요구하지 않는다. Python 객체로 원문을 읽거나 파싱하지 않고 표준 출력·명령 인자·환경변수에 넣지 않으며, 입력 창을 화면 캡처·접근성 조회로 읽지 않는다.
+`get`은 계정 메타데이터와 실제 `username`·`password`를 JSON으로 반환한다. AI는 이 값을 읽어 로그인 도구에 사용한다. `list`·`find`는 메타데이터만 반환한다. 검색 조건을 생략해도 되며 다른 checkout·worktree는 같은 원격 저장소 키를 사용한다.
 
 ```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR"
-python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-staging-tester --environment staging --role tester --capability smoke
+python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment production --role tester
 ```
 
-같은 계정을 공유하는 저장소는 `--related-project "$OTHER_PROJECT_DIR"`, 환경은 `--related-environment development`를 반복해 추가한다. 기기 귀속 조건은 로컬 비공개 JSON 파일을 `--device-file "$PRIVATE_DEVICE_FILE"`로 전달한다. 기존 `--download-device-file`도 호환 입력으로 지원하며 두 옵션을 함께 쓰지 않는다. 파일은 `platform`(`ios` 또는 `android`), `name`, `identifier`(모르면 `null`) 세 필드만 가지며 비밀값은 포함하지 않는다. 플랫폼 지원은 `ios`·`android`·`flutter` 같은 기능 라벨로 함께 명시할 수 있다. 조회 응답은 내부 저장 참조와 기기 고유 식별자를 제외한다.
+## 계정 저장과 갱신
 
-등록은 기존 서버 계정을 저장하는 작업이다. 서버 계정을 만들거나 비밀번호를 바꾸지 않는다. 같은 별칭을 덮어쓰지 않으며, 저장한 비밀값을 갱신할 때는 사용자가 지정한 별칭으로 `update`를 사용한다. 용도·환경을 바꾸려면 새 별칭으로 등록한다.
+별칭만 지정하면 환경은 `default`, 용도는 `tester`로 저장한다. 기존 요청에서 알고 있는 환경·용도는 함께 지정한다. 같은 계정을 사용하는 다른 저장소는 `--related-project`, 다른 환경은 `--related-environment`로 연결할 수 있다.
 
 ```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" list --project "$PROJECT_DIR"
-python3 "$TEST_ACCOUNTS_SCRIPT" update sample-staging-tester
+python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-prod --environment production --credentials-stdin
+python3 "$TEST_ACCOUNTS_SCRIPT" update sample-prod --credentials-stdin
 ```
 
-### 채팅으로 제공한 계정 저장과 재사용
+`--credentials-stdin`에는 `username`·`password` 두 문자열의 JSON을 표준 입력으로 전달한다. 공백·줄바꿈·유니코드를 원문 그대로 보존한다. 셸 문자열 조합보다 실행 도구의 stdin이나 Node.js `child_process`의 `input`을 사용하면 특수문자도 그대로 전달할 수 있다. 터미널에서 직접 실행할 때 이 옵션을 생략하면 Python의 아이디·비밀번호 입력을 사용한다.
 
-1. 현재 요청에서 사용자가 직접 제공한 아이디·비밀번호만 받는다. 과거 대화·로그에서 자동 수집하지 않는다. 프로젝트·환경·용도는 기존 QA 요청에서 확인하고 실제 아이디와 다른 별칭을 정한다. 누락되거나 구분할 수 없는 값만 질문하며, 앞뒤 공백·줄바꿈·유니코드를 임의로 다듬거나 추측하지 않는다.
-2. `register --credentials-stdin`에 `--name`·`--environment`·`--role`을 모두 지정한다. 기존 별칭은 덮어쓰지 않는다. 이 경로는 로컬 입력 창을 열지 않으며 비밀값은 `username`·`password` 두 문자열만 가진 **한 줄 JSON과 끝의 줄바꿈**으로 표준 입력 파이프에 전달한다. 값 안의 줄바꿈은 JSON으로 이스케이프한다. Python은 원문을 파싱하지 않고, 준비 확인용 자식 프로세스를 시작하기 전에 입력 파이프를 비상속 FD로 분리하고 일반 표준 입력을 비운다. 서명된 도구에만 해당 FD를 명시적으로 전달하며, 도구가 형식·길이·중복 키를 검사한 뒤 기존 확정·취소 절차로 저장한다.
-3. 호스트가 제공하는 프로세스 도구의 **실제 파이프 입력**을 사용한다. 이 세션의 `node_repl`에서는 실제 스킬 경로의 `scripts/chat_registration.mjs`를 import하고 `registerChatAccount`에 `pythonExecutable`(이미 확인한 Python 3.10 이상 실행 파일의 절대 경로), `project`(프로젝트 절대 경로), `name`(별칭), `environment`, `role`, `username`, `password`를 전달한다. 필요한 경우 `capabilities`·`relatedProjects`·`relatedEnvironments` 배열을 추가한다. 이 연결 함수가 셸 없이 비밀 없는 인자 배열로 Python을 실행하고, 메모리에서 만든 JSON을 자식의 표준 입력 파이프로 보낸다. 출력은 64KiB, 대기는 기본 180초로 제한하고 공개 응답만 반환한다. 원문을 셸 명령 문자열·프로세스 인자·환경변수·here-document·파일·클립보드에 넣거나 원문을 포함할 수 있는 예외를 출력하지 않는다. 입력 중 캡처·녹화·트리 조회를 병행하지 않는다. 파이프 입력을 지원하지 않는 실행 도구의 `stdin`을 지원한다고 가정하거나 TTY로 우회하지 않는다.
-4. `registered` 뒤 같은 프로젝트·환경·용도로 `find`하고 반환 후보에 방금 등록한 별칭이 있는지 확인한다. 현재 대상에서 지원하는 보호된 로그인 경로로 이어가며 전용 `login`에는 `--account`로 그 별칭을 지정한다. 저장 성공만으로 로그인 성공을 보고하지 않으며 인증·환경·정리를 확인한 후 원래 QA를 재개한다. 계정이 이미 저장됐다면 다시 제공하거나 등록하도록 요구하지 않는다.
+채팅에서 받은 계정은 기존 `scripts/chat_registration.mjs`의 `registerChatAccount`로도 저장할 수 있다. Node 실행 도구에서 모듈을 import하고 `pythonExecutable`, `project`, `name`, `environment`, `role`, `username`, `password`를 전달한다. 이 함수는 Python CLI에 JSON stdin을 전달하며 네이티브 입력기를 호출하지 않는다.
 
-다음 호출의 인자는 검색 정보뿐이며 JSON 원문은 위 파이프로 별도 전달한다.
+기존 별칭은 `update`로 갱신한다. 별칭을 추가하려면 계정값을 다시 입력하지 않고 다음 명령을 사용할 수 있다.
 
 ```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-staging-tester --environment staging --role tester --credentials-stdin
-python3 "$TEST_ACCOUNTS_SCRIPT" find --project "$PROJECT_DIR" --environment staging --role tester
-```
-
-현재 채팅에서 제공된 값은 채팅·호스트의 도구 입력 기록에 남을 수 있다. 저장 도구는 이를 삭제하거나 기록되지 않게 보장하지 않는다. 응답·리포트·일반 로그에 원문을 반복하지 않는다. 이 예외는 새 계정의 등록 입력에 한정하며 저장된 원문을 읽어 일반 UI 도구로 전달하는 허용이 아니다.
-
-`registration_timed_out`·`registration_input_failed`·`registration_response_invalid`의 `uncertain`과 `registrationUnconfirmed:true`는 저장 여부가 불명확하다는 뜻이다. 성공으로 보고하지 않으며 실행 프로세스를 종료했어도 저장을 되돌렸다고 단정하지 않는다. `error`도 원인과 현재 상태를 먼저 확인한다. 같은 별칭의 `list`·`find`와 비밀값 없는 `check`로 목록·원문 저장소의 대응을 확인한 뒤에만 재시도하거나 이어가며 자동 재등록·덮어쓰기·계정 전체 정리를 하지 않는다.
-
-### 승인된 기존 계정을 Simulator에 저장
-
-기존 실기기 계정의 Simulator 사용을 사용자가 허용했다면 `register --from-account SOURCE`로 **정확한 Simulator에 귀속된 새 별칭**을 저장할 수 있다. 프로젝트·환경·용도는 원본 계정의 허용 범위 안이어야 하고 기능은 명시적인 부분집합이어야 한다. `--device-file`에는 실행 중인 Simulator와 정확히 일치하는 `platform: ios`, 이름, UUID 식별자를 넣는다. 미귀속 계정으로 복사하거나 실기기 귀속을 해제하지 않는다. 원문은 native 도구 안에서만 읽어 새 항목으로 저장하며 Python·모델에 반환하지 않는다. 새 항목도 기존 확정·취소 절차를 사용하고 원본 계정과 귀속 조건은 보존한다.
-
-```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-simulator-tester --environment staging --role tester --from-account sample-device-tester --device-file "$PRIVATE_SIMULATOR_METADATA" --capability ios
-```
-
-실제로 저장한 별칭을 `find`로 대조하고 `login --account`에 지정한다. 계정 복사·조회·인증 성공은 각각 확인한다. 사용 범위 확대를 계정 등록이 자동 승인한 것으로 해석하지 않는다.
-
-## 보관과 로그인 경계
-
-- 검색 목록에는 비밀값 필드를 허용하지 않는다. 기존 목록의 `keychain_ref`는 호환성을 유지하는 필드명이며, 현재는 계정 파일의 불투명한 위치 참조다. 심볼릭 링크·다른 소유자·과도한 권한·손상 자료는 자동 수정하거나 초기화하지 않고 오류로 반환한다. 계정 폴더와 원문·검색 목록을 버전 관리 저장소·클라우드 동기화 폴더·공유 문서·QA 산출물로 복사하지 않는다.
-- 전용 도구가 계정 파일의 권한·소유자·형식·참조를 확인하고, 파일 잠금과 원자적 교체로 동시 저장을 보호한다. 일반 등록·갱신·확인·로그인은 키체인에 접근하지 않는다. 파일 읽기 실패를 키체인 읽기로 우회하지 않는다.
-- 등록 취소는 비밀값을 저장하지 않는다. 새 계정 저장 뒤 목록 기록이 성공해야 생성 프로세스에 등록을 확정한다. 실패·입력 연결 종료는 **그 프로세스가 방금 만든 항목만** 취소하며, 외부 참조를 받아 삭제하는 명령은 제공하지 않는다. 갱신은 저장된 참조와 선택한 별칭이 모두 일치해야 수행한다. 강제 종료 등으로 확정·취소를 확인할 수 없으면 아래 `check`로 대응을 확인하고, 전체 계정 정리·자동 삭제로 범위를 넓히지 않는다.
-- 이 도구의 CLI는 비밀값 출력·클립보드 복사·임의 명령 실행을 제공하지 않는다. 검색은 계정 파일의 원문을 읽지 않는다. 과거 채팅·로그에 남은 계정을 자동 수집하지 않는다. `credentials.json`을 일반 파일 도구로 열거나 출력하지 않는다.
-- **계정 선택과 앱 로그인 성공은 별개다.** 일반 `agent-device fill`·CUA `setValue`/`type`·JavaScript·`--env`·셸 치환·`AD_VAR_*` replay로 원문을 주입하지 않는다. 현재 채팅으로 제공된 계정은 위 파이프로 먼저 등록하고 별칭으로 재사용한다. 앱 자동 입력에는 아래 전용 `login` 또는 현재 대상에서 검증된 기존 보호 입력 경로를 사용하며, 이미 저장된 계정을 다시 저장하도록 요청하지 않는다. 기존 로그인 자료를 삭제하는 로그아웃·계정 전환은 대상 프로젝트의 보존·승인 조건을 따른다.
-
-도구의 성공 응답에는 별칭과 검색 정보만 포함된다. 등록 성공·후보 선택·실제 로그인·기능 권한 확인을 구분해 보고한다.
-
-## 기존 키체인 계정 이전과 무인 실행 확인
-
-기존 목록을 그대로 사용한다. 저장 방식 전환이 승인된 경우 다음 명령으로 **목록에 등록된 참조만** 이전한다. 키체인 원본은 삭제하지 않으며 이미 같은 참조로 이전한 항목은 재사용한다. 비밀값은 전용 도구 내부에서만 이동한다.
-
-```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" migrate-keychain
+python3 "$TEST_ACCOUNTS_SCRIPT" register --project "$PROJECT_DIR" --name sample-other --from-account sample-prod
 python3 "$TEST_ACCOUNTS_SCRIPT" check
 ```
 
-기본 이전은 키체인 승인 창을 열지 않는다. `migration_requires_approval`이면 사용자가 있는 최초 이전 때만 `migrate-keychain --allow-interaction`을 실행해 시스템 승인 창을 처리한다. macOS 로그인 암호를 수집·입력하지 않으며, 이 승인이 필요한 상태를 이전 완료로 보고하지 않는다. 키체인 잠금·접근 권한은 그대로 보존한다. `check`의 `ready`와 계정 수 일치를 확인한 뒤 무인 QA에 사용한다. `check`는 원문을 출력하지 않으며 실제 앱 로그인 성공을 뜻하지 않는다. 이후 QA에서 키체인 창이 뜨면 현재 도구·빌드 출처를 확인하고 반복 승인으로 우회하지 않는다.
+## 작업 이어가기
 
-`check`와 이전 명령의 Python 대기는 승인 창 대기를 포함해 180초다. 시간 초과·연결 종료는 이전 완료 증거가 아니므로 재실행 전에 `check`로 현재 저장 상태를 확인한다. 이전 재실행은 같은 참조의 저장 항목을 보존한다.
+전용 입력기가 실패하면 일반 기기·브라우저 입력 도구로 전환한다. helper·runner·프로필·환경 버튼·입력 정리 상태를 계정 조회나 작업 재개의 필수 조건으로 요구하지 않는다. 사용자가 직접 입력 중이라는 이유만으로 화면 조회·캡처·녹화나 전체 QA를 일괄 중단하지 않는다. 현재 화면과 입력 상태를 확인하며 이어간다.
 
-## 저장된 계정으로 앱 로그인
+추가 인증·CAPTCHA 등 사용자 조작이 실제로 필요한 단계만 요청하고 독립 작업은 계속한다. 제출 결과가 불명확하면 현재 화면·세션부터 확인하고, 서버가 인증을 거부하면 원인을 확인한다. 같은 실패 제출을 무한 반복하지 않는다. 실제로 완료하지 못한 항목은 미검증으로 보고한다.
 
-### 전용 입력기의 지원 범위
+## 저장 방식과 기존 호환
 
-전용 `login`은 iOS의 직접 USB 연결 실기기와 **실행 중인 iOS Simulator**를 구분해 사용한다. UUID형 대상은 계정 목록·프로필·helper에 접근하기 전에 `simctl` 목록에서 실제 이름·가용성·Booted 상태를 확인하며 native 도구도 대상을 독립 검증한다. 조회 실패·미확인은 `login_target_unverified` 또는 `ios_target_unverified`, 실행되지 않은 Simulator는 `simulator_not_booted`로 반환한다. Simulator는 별도 runner·신뢰 기록을 사용하고 127.0.0.1의 인증·암호화 통신으로 전달한다. 실기기 USB 경로로 대체하지 않는다. UI 캡처·디자인 검수·리포트만 필요한 경우에는 이 입력 도구를 준비할 필요가 없다.
+메타데이터는 `~/.config/agent-test-accounts/accounts.json`, 계정 원문은 같은 폴더의 `credentials.json`에 저장한다. 암호화하지 않는 로컬 JSON이며 폴더 `0700`·파일 `0600` 권한과 동시 쓰기 잠금·원자적 저장을 사용한다. AI와 입력 도구가 계정값을 읽을 수 있으며 도구 기록에도 남을 수 있다. Codex와 Claude는 같은 파일을 사용한다.
 
-1. 현재 앱의 프로젝트·실제 앱 ID·서버 환경·실기기 또는 Simulator 식별자를 기존 QA 대상 정보에서 확보하고 위 지원 범위를 확인한다. 정상 로그인 세션이 있으면 재사용한다. 같은 앱 ID라도 설치된 화면이 프로젝트의 로그인 화면과 다를 수 있으므로 식별자가 맞지 않으면 입력하지 않는다.
-2. 아래 `login`을 실행한다. 조회 범위 안에서 한 계정을 선택하며, 후보가 여럿이면 응답의 `candidates` 별칭과 기존 요청을 대조해 `--account`로 지정한다. 기존 요청으로 구분할 수 없을 때만 차이를 질문한다. 귀속·비귀속 계정 중 임의로 우선하지 않으며 `--account`도 프로젝트·환경·기능·기기 조건을 우회하지 않는다. Flutter는 실행 기기의 `ios` 또는 `android`를 지정한다.
-3. 서명된 전용 도구가 앱·입력란·비밀번호 필드·프로필에 지정한 서버 선택을 먼저 확인한다. `ready` 이후에만 저장된 계정 원문을 읽어, Android는 고정된 ADB 자식의 비공개 표준 입력으로, iOS는 대상별 전용 runner의 실행별 인증·암호화 통신으로 전달한다. Simulator에서는 준비와 입력 사이의 앱 프로세스·설치 코드 동일성도 대조한다. Python·Node·명령 인자·환경변수·추가 임시 파일·클립보드·일반 QA 기록에는 계정 원문을 전달하지 않는다. 입력 중 화면 캡처·녹화·트리 조회를 병행하지 않는다.
-4. `authenticated`는 로그인 화면 제거와 성공 화면을 관측한 결과다. `environment_selector:null` 프로필의 `ready`·`authenticated`는 `environment_verified:false`와 `environment_check:"not_configured"`를 함께 반환하고 종료 코드 0이다. 화면에서 환경을 관측하지 않았다는 뜻이므로, 보고서에는 등록 전에 확인한 빌드 근거를 환경 근거로 구분해 적는다. `already_authenticated`는 기존 세션 관측이며 `environment_verified:false`이면 그 세션의 환경·계정 일치를 새로 증명한 것이 아니다. 이때 전용 명령의 종료 코드 1은 유지하되 세션을 보존하고, 설치된 빌드와 연결된 설정·비밀값 없는 서버 정보·인증 후 화면 등 프로젝트의 확인 근거로 부족한 조건을 보완한다. 근거가 충족되면 기존 세션으로 QA를 재개하고 전용 명령 결과와 보완 확인을 구분해 기록한다. `not_ready`·`failed`·`uncertain`·`error`도 성공으로 취급하지 않고 현재 상태부터 확인한 뒤 복구 절차로 이어간다. 결과 불명확한 제출을 자동 반복하거나 로그아웃·다운로드 삭제로 재시도하지 않는다.
-
-Simulator의 `login --preflight-only`는 **계정 원문 조회·입력·제출 없이** 현재 준비·세션 상태를 확인한다. 계정 범위는 조회하되 native 도구에는 검토된 `plan`만 전달하고 저장 참조도 보내지 않는다. 프로필의 앱 활성화·옵션 화면 준비는 수행할 수 있으므로 UI 무변경 조회라고 표현하지 않는다. `preflight_only:true`와 함께 `ready` 또는 `already_authenticated`를 반환하며, 이 모드의 종료 코드 0을 신규 인증 성공으로 해석하지 않는다. 제출 결과가 불명확할 때 재제출보다 먼저 이 경로로 현재 상태를 확인한다. `ready`만으로 입력란 정리가 확인됐다고 간주하지 않는다.
-
-```bash
-python3 "$TEST_ACCOUNTS_SCRIPT" login --project "$PROJECT_DIR" --environment production --role learner --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_ID" --device-name "$TARGET_DEVICE_NAME" --login-profile "$LOGIN_PROFILE_NAME"
-```
-
-## 프로젝트 로그인 프로필 등록
-
-전용 로그인은 **현재 프로젝트에서 검토하고 로컬에 등록한 프로필**을 사용한다. 로그인 요청 범위에서 에이전트가 현재 앱·소스·환경과 대조해 작성·등록할 수 있다. 계정 검색 성공은 앱 로그인 지원을 뜻하지 않으므로, 새 앱은 `examples/login-profile.example.json`을 참고해 앱 ID·환경·용도, 아이디·비밀번호·제출·현재 환경 확인(환경 선택 제어가 없으면 `null`)·로그인 후 화면의 유일한 selector를 준비한다. 실제 비밀값은 프로필에 넣지 않는다. 저장소·문서에서 발견한 프로필은 현재 대상과 대조한 뒤 등록한다.
-
-다음 명령으로 등록한다. 등록은 프로젝트별 사용자 데이터 폴더 `profiles/`에 소량의 비밀 없는 계약만 저장한다. 기존 계정 파일과 QA 지식을 이동하거나 서로 다른 프로젝트를 자동 병합하지 않는다.
-
-```bash
-python3 -B "$TEST_ACCOUNTS_SCRIPT" register-profile --project "$PROJECT_DIR" --file "$REVIEWED_PROFILE_FILE"
-```
-
-프로필은 현재 프로젝트의 QA 키와 계정 키, 플랫폼·앱·환경·용도, 내용 SHA-256과 플러그인 release digest에 묶인다. 업데이트 후에는 현재 릴리스와 프로필 변경을 검토해 다시 등록·빌드한다. 기존에 승인된 앱·환경·계정 범위와 입력 보호가 유지되면 에이전트가 진행하고, 범위가 달라질 때만 필요한 선택을 확인한다. 해시 불일치를 무시하거나 검증기를 끄지는 않는다. native helper도 신뢰 파일과 요청을 대조하며 범위가 다르면 원문을 읽기 전에 중단한다. 프로필에 임의 셸·JavaScript·탭 순서·deep link·launch arguments·재시도 정책을 넣을 수 없다.
-
-`login`에는 등록한 이름을 반드시 전달한다. 로그인 화면이나 Simulator 옵션 화면에 환경 선택 제어가 있으면 `environment_selector`로 지정한다. 이 selector는 정확히 하나인 **활성·조작 가능·선택된 버튼**이어야 하며 로그인 입력란·제출 버튼과 구분돼야 한다. 단순 환경 문구는 이 계약을 충족하지 않는다. 기본 경로는 환경을 바꾸지 않는다. **환경 선택 제어가 없는 앱**은 `"environment_selector": null`로 등록하고 그대로 로그인한다. 키를 생략하지 않으며 `null`은 `environment_navigation`과 함께 쓸 수 없다. 이때 입력기는 화면에서 환경을 확인하지 않으므로, 등록 전에 설치된 빌드의 앱 ID·scheme·build configuration·비밀값 없는 서버 설정 같은 프로젝트 근거로 프로필 환경과의 일치를 확인한다. 이런 근거로도 환경을 확인할 수 없을 때만 다른 보호된 경로·사용자 직접 입력으로 이어간다. 환경 버튼이 없는 앱 자체를 로그인 불가로 판정하거나 앱에 환경 버튼을 추가하지 않는다. 프로필의 앱 ID와 설치 앱을 대조하고 입력 필드 유일성·secure 속성·지정한 환경 버튼을 확인한 뒤 한 번만 제출한다. 로그인 화면의 소멸과 성공 화면을 관찰하며 정상 인증 세션은 보존한다.
-
-Simulator에서 환경 선택이 별도 옵션 화면에 있는 앱은 선택적인 `environment_navigation`을 등록한다. 정확한 네 필드 `open_selector`, `close_selector`, `open_gesture`(`tap` 또는 고정 1초의 `long_press`), `select_if_needed`(불리언)만 허용한다. 앱 소스와 현재 화면에서 옵션 열기·닫기·환경 버튼의 역할을 확인하며 로그인·제출 요소와 겹치는 제어는 허용하지 않는다. 로그인 필드 확인 → 옵션 열기 → 지정 환경 버튼의 선택 확인 → 옵션 닫기 → 동일 앱·로그인 필드 재확인 순서다. `select_if_needed:true`를 명시하고 해당 환경 선택이 승인된 때만 미선택 버튼을 한 번 눌러 확인한다. 임의 탭 순서·스크립트·재시도·실행 인자는 받지 않는다. 이미 인증된 세션은 이 절차보다 먼저 재사용한다. 환경 확인은 UI 선택 상태의 근거이며 실제 API 호스트를 관측한 결과로 확대하지 않는다.
-
-```bash
-python3 -B "$TEST_ACCOUNTS_SCRIPT" login --project "$PROJECT_DIR" --environment staging --role tester --platform "$TARGET_PLATFORM" --device "$TARGET_DEVICE_ID" --login-profile example-staging
-```
-
-### identifier가 없는 로그인 화면
-
-`identifier`는 필수가 아니다. **비밀값을 읽기 전**, 계정값이 들어 있지 않은 화면의 접근성 정보와 현재 소스에서 필드의 역할을 확인한다. 자동 완성값이 있거나 정리 상태가 불명확하면 화면 트리를 먼저 수집하지 않는다.
-
-| 선택 방법 | iOS | Android |
-|---|---|---|
-| 앱이 제공한 ID | `{"identifier":"login.username"}` | `{"identifier":"org.example.sample:id/username"}` |
-| 표시 이름·힌트 | `{"label":"아이디"}` 또는 `{"placeholder":"아이디"}` | `{"label":"아이디"}`로 content description·hint 확인 |
-| 이름도 없는 단일 입력 필드 | 아이디 `{"type":"textField"}`, 암호 `{"type":"secureTextField"}` | 아이디 `{"type":"textField"}`, 암호 `{"type":"secureTextField"}` |
-
-타입 선택은 아이디·암호 selector에만 사용할 수 있다. 아이디는 일반 편집 필드, 암호는 실제 secure/password 속성을 가진 편집 필드로 확인한다. 각 조건에 맞는 필드가 하나일 때만 입력하며, 여러 개면 현재 소스·힌트·접근성 설정으로 구분한다. 배열의 첫 필드·고정 좌표·탭 순서로 추측하지 않는다. 제출 버튼·환경·성공 화면은 별도 이름이나 ID로 식별한다. selector 하나에는 선택 조건 하나만 넣는다.
-
-iOS 성공 화면이 탭바라면 `success_selectors`의 `{"tab_button_label":"화면 이름"}`으로 정확한 탭바 버튼만 지정할 수 있다. 같은 이름의 제목·본문·일반 버튼을 제외하고 탭바 안에서 유일하고 조작 가능한 버튼인지 확인한다. 이 조건은 iOS 성공 화면에만 허용하며 입력·제출·환경·옵션 조작이나 Android에 사용하지 않는다.
-
-### 막혔을 때의 복구
-
-**준비 복구 → 다른 보호된 로그인 경로 → 꼭 필요한 사용자 조작 → 인증·환경·정리 확인 후 QA 재개** 순서로 진행한다. 실제로 사용할 수 있는 다음 경로를 확인하고 실행하며, 대안 목록을 제시한 뒤 끝내지 않는다. 같은 입력 경로의 같은 실패를 근거 없이 반복하지 않되, 그 경로의 재시도 종료를 로그인 작업의 종료로 확대하지 않는다. 빌드·합성 검증 성공을 실제 앱 로그인 성공으로 바꾸지 않는다.
-
-| 결과·원인 | 다음 단계 |
-|---|---|
-| `simulator_not_booted` | 지정한 Simulator의 가용성과 부팅 상태를 확인한다. 요청한 대상만 준비하고 다른 실행 중인 기기를 대신 사용하지 않는다. |
-| `login_target_unverified`·`ios_target_unverified` | 현재 Xcode의 대상 목록과 정확한 기기 식별자를 확인한다. 조회 실패를 실기기 확인으로 처리하거나 다른 기기로 대체하지 않는다. |
-| `app_instance_changed` | 준비한 앱이 바뀌었다. 원문을 읽거나 재전송하지 말고 현재 앱·프로필·입력 정리 상태부터 확인한다. |
-| `ios_artifact_cleanup_unconfirmed` | 해당 실행의 비공개 진단 산출물 정리를 확인하지 못했다. 성공으로 보고하지 않고 현재 소유 실행 경로와 프로세스 상태를 확인한다. 진단 내용·계정 원문을 열거나 다른 실행의 산출물을 삭제하지 않는다. |
-| `not_found` | `list --project`와 `find`로 실제 등록 별칭·환경·용도·기기 조건을 대조한다. 실제 계정이 없으면 등록을 안내한다. 사용자가 현재 채팅에 계정을 제공하면 `register --credentials-stdin`으로 저장한 뒤 같은 별칭으로 조회·로그인을 이어간다. 저장된 계정을 곧바로 다시 등록하도록 요청하지 않는다. |
-| `ambiguous` | 반환된 별칭 중 기존 요청에 맞는 계정을 `--account`로 지정한다. 구분 근거가 없으면 계정값이 아닌 별칭의 차이만 확인한다. |
-| `profile_not_found` | 현재 화면·소스로 비밀 없는 프로필을 작성하고 `register-profile`로 등록한다. |
-| `profile_release_mismatch` | 현재 릴리스·입력 계약의 변경을 검토하고 프로필 재등록·플랫폼 입력 도구와 helper 빌드를 진행한다. |
-| `profile_scope_mismatch`·`profile_untrusted` | 실제 대상·프로필 범위 또는 소유권·권한 문제를 확인한다. 다른 환경으로 바꾸거나 파일 권한을 무작정 완화하지 않는다. |
-| `LOGIN_VIEW_NOT_READY`·`login_elements_not_unique`·필드 미발견 | 현재 화면으로 돌아가 label·placeholder·타입 선택을 확인하고 프로필을 보완한다. `identifier` 부재만으로 중단하지 않는다. |
-| `APP_NOT_FOREGROUND`·`LOGIN_VIEW_STILL_PRESENT` | 성공 대기 중 앱이 전면에 없거나 로그인 요소가 남아 있었다. 인증 거부로 단정하지 말고 현재 앱·입력 정리·세션을 원문 없는 preflight로 확인한다. 자동 재제출하지 않는다. |
-| `SUCCESS_MARKER_MISSING`·`SUCCESS_MARKER_NOT_UNIQUE_OR_HITTABLE` | 성공 화면 요소가 없거나 유일성·조작 가능 조건을 충족하지 못했다. API 성공과 UI 판정을 구분하고 현재 소스의 성공 요소와 대조한다. iOS 탭은 `tab_button_label`로 한정할 수 있다. 원문·입력값·화면 트리를 진단에 출력하지 않는다. |
-| `ENVIRONMENT_FIELDS_NOT_READY` | 로그인 입력 요소가 준비되지 않았다. 현재 화면·프로필을 확인하며 원문은 읽거나 입력하지 않는다. |
-| `ENVIRONMENT_NOT_UNIQUE`·`ENVIRONMENT_ALIASES_LOGIN_FIELD` | 환경 요소의 유일성과 로그인 요소와의 구분을 프로필·현재 소스에서 확인한다. |
-| `ENVIRONMENT_NOT_BUTTON`·`ENVIRONMENT_NOT_ENABLED`·`ENVIRONMENT_NOT_HITTABLE`·`ENVIRONMENT_NOT_SELECTED` | 현재 화면·옵션 화면에 환경 선택 제어가 실제로 있는지 확인한다. 제어가 없는 앱이면 빌드 근거로 환경을 확인한 뒤 `environment_selector:null`로 프로필을 다시 등록해 이어간다. 제어는 있지만 이 계약을 충족하지 않으면 다른 보호된 인증 경로나 사용자 직접 입력으로 전환하고, 해당 경로의 근거로 실제 환경을 확인한다. helper 검증을 끄거나 앱을 개조하지 않는다. |
-| 도구 미준비 | 지원 대상인지 먼저 확인하고 아래 절차에서 필요한 기존 도구만 빌드한다. 정상 산출물은 재사용한다. |
-| 미지원 화면·문자 | 현재 대상에서 검증된 기존 보호 입력 경로를 사용한다. 없으면 아래 사용자 직접 입력 절차로 이어간다. 새 어댑터·시험 앱 제작을 로그인 완료의 선행 조건으로 만들지 않는다. |
-| 추가 인증·기기 신뢰 승인·CAPTCHA | 기존 승인 범위와 도구 지원을 확인하고, 사용자가 직접 처리해야 하는 단계만 아래 절차로 요청한다. 인증 완료 후 같은 앱·대상에서 이어간다. |
-
-기존 다른 입력 경로를 사용할 때도 계정 범위와 앱·환경을 확인하고, 원문은 검증한 로컬 입력 프로세스와 보호된 통신 안에서만 처리한다. 해당 경로가 제공하는 입력·성공·정리 계약을 확인하며 전용 helper의 프로필이나 환경 버튼을 추가로 요구하지 않는다. `credentials.json`을 모델의 파일 읽기 도구로 열거나 일반 CUA·`fill`·JavaScript·셸 인자·환경변수·클립보드로 옮기는 방식은 쓰지 않는다.
-
-자동 경로가 없거나 사용자의 인증 조작이 꼭 필요하면 다음과 같이 이어간다.
-
-1. 현재 앱을 필요한 입력 화면까지 준비하고, 계정값 없이 대상·실패 이유·사용자가 처리할 조작만 한 번에 알린다. 이미 승인한 로그인 자체를 다시 승인받거나 채팅 재입력·불필요한 계정 재등록을 요구하지 않는다.
-2. 직접 입력 중 화면 조회·캡처·녹화를 멈춘다. 이전 입력의 정리가 불명확하면 잔류 입력 정리도 요청한다. 완료 응답을 기다리며 독립 QA는 계속할 수 있지만, 로그인 의존 항목은 `사용자 입력 대기`로 유지한다.
-3. 완료 후 비밀값을 반환하지 않는 상태 확인이나 사용자의 입력 화면 종료·정리 확인으로 조회 재개 조건을 확인한다. 이어서 로그인 화면 소멸·인증 후 화면과 실제 환경을 대조하고 원래 QA를 재개한다. 사용자 완료 응답만으로 인증·환경 검증을 통과 처리하지 않는다.
-
-제출 전 준비 실패는 원문이 입력되지 않았거나 정리가 확인됐을 때 수정 후 다시 시도할 수 있다. 제출·인증 결과가 불명확하면 다른 경로로 전환할 때도 상태와 정리를 확인하기 전에는 재제출하지 않는다. 서버의 명시적 인증 거부·잠금·장애는 실제 원인과 가능한 다음 조치를 알리며 무한 재시도하거나 인증을 우회하지 않는다. 사용자 입력을 기다리거나 인증이 거부된 상태를 로그인 완료로 보고하지 않는다.
-
-iOS helper 호출의 Python 대기는 360초, Android는 기존 180초다. iOS의 유한 여유는 native 준비·입력·정리 결과를 기다리기 위한 것이며 전체 작업의 시간 상한이나 정리 완료를 보장하지 않는다. 일부 시스템 호출은 별도로 지연될 수 있다. 시간 초과는 원문 출력을 버리고 `uncertain`·`timed_out`·`cleanup:unconfirmed`·`environment_verified:false`를 반환하며 로그인 제출을 반복하지 않는다.
-
-실패 결과의 `cleanup`이 `failed`·`unavailable`·`unconfirmed`이면 입력란에 값이 남았을 수 있다. 정리를 확인하기 전에는 일반 캡처·녹화·화면 트리 수집을 재개하지 않고, 원문을 표시하거나 같은 로그인 제출을 반복하지 않는다.
-
-## 최초 준비와 검증
-
-플러그인에 포함된 스킬의 `scripts/test_accounts.py` 절대 경로를 `TEST_ACCOUNTS_SCRIPT`로 사용한다. 먼저 대상 지원 여부를 확인하고 지원 대상의 첫 빌드·로그인 전에 [저장소 최초 설정](../setup/SKILL.md)을 수행한다. 사용자가 내장 또는 외장 저장소에서 선택한 폴더·VolumeUUID·MountPoint는 Mac 로컬 설정에서 읽으며 공개 코드에 개인 경로를 고정하지 않는다. 조회·프로필 등록은 원본 계정을 읽지 않고 대용량 산출물을 만들지 않으므로 빌드용 저장소를 추가 준비할 필요가 없다.
-
-등록·갱신·로그인용 도구가 없거나 소스·release·실행파일 해시·서명 검사가 실패하면 원인을 확인하고 다음 준비 절차로 빌드한다. 이미 설치된 도구와 확인된 서명 설정을 재사용하며 새 SDK·인증서 설치나 검증 생략으로 우회하지 않는다. `check`와 로그인 성공은 별개다.
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -B "$SKILL_DIR/scripts/build_helper.py"
-```
-
-자동 로그인 도구 준비는 `build_android_input.py`, 확인한 개발 팀을 전달한 `build_ios_input.py --team-id "$APPLE_TEAM_ID"`, `build_helper.py` 순서다. 필요한 플랫폼만 준비한다. Android SDK/JDK와 Xcode는 사용자가 설치한 도구를 탐지하고 경로·출처를 기록한다. 별도 패키지·SDK·서명·인증서를 플러그인에 포함하지 않는다.
-
-Simulator 전용 준비는 `build_ios_input.py --simulator` → `build_helper.py --simulator-only` 순서다. 별도 `IOSSimulatorInput`의 Simulator SDK·제품 식별자·소스·도구·release·산출물 신원을 확인한다. 실기기용 Apple 인증서를 요구하지 않으며, 기존 실기기·Android 산출물을 삭제하거나 신뢰 검사를 완화하지 않는다. 이미 검증된 Simulator 도구는 재사용한다.
-
-iOS 입력은 호환 목록의 `agent-device` 0.21.30 runner 소스를 선택한 저장소의 작업 폴더에 복사해 전용 경로만 추가한다. 전역 설치본을 수정하지 않는다. 미지원 버전을 자동 패치하거나 최신 버전으로 교체하지 않는다. helper·runner·프로필·release가 섞이면 실행 전에 중단한다. 기기용 빌드에는 사용자의 유효한 서명이 필요하다.
-
-로그·캐시·원본 화면·빌드 결과는 선택한 저장소 아래의 고정 작업 폴더에 두고 매 작업에서 실제 볼륨 신원을 확인한다. 저장소가 없거나 쓰기 불가이면 선택 폴더 밖의 다른 경로로 자동 대체하지 않는다. 프로젝트·호스트의 추가 저장 정책도 함께 따른다. 다른 작업의 기기·runner를 점유하지 않고 자신이 시작한 프로세스만 정리한다.
-
-검증에는 실제 등록 계정 대신 격리된 합성 자료를 사용한다. `TMPDIR`를 선택한 저장 폴더 안에서 추가 저장 정책을 충족하는 검증된 작업 폴더로 지정하고 `PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest discover -s "$SKILL_DIR/tests"`를 실행한다. 계정 파일·캡처·기기 식별자·프로젝트 정책을 공개 저장소나 테스트 fixture로 복사하지 않는다.
+기존 로컬 계정 파일의 형식·별칭·참조는 유지하므로 재등록이나 마이그레이션 없이 사용한다. 과거 Keychain에만 있는 계정의 이전과 전용 자동 로그인은 `scripts/native_accounts.py`에 호환 기능으로 남아 있다. 기본 계정 저장·조회에는 이 도구를 호출하거나 빌드하지 않는다.

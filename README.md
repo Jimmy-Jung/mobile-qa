@@ -1,6 +1,6 @@
 # Mobile QA
 
-Author: JunyoungJung · 2026-10-28 · Version: 0.3.1
+Author: JunyoungJung · 2026-10-29 · Version: 0.3.2
 
 [English](README.en.md) · [결과 리포트 예시](examples/design-review/report.md)
 
@@ -155,7 +155,7 @@ iPad 학습 앱에서 “소리는 나는데 영상만 검다”는 문의가 8�
 | 연속 실행·기록 재생·테스트 묶음 (`batch`, `replay`, `test`) | 검증한 흐름을 재사용하고, 수정 전후 빌드에서 같은 조건으로 회귀 확인 | 반복 실행 결과와 실패 단계, 다음 QA가 찾을 실행 파일·사용 조건 |
 | 기기·세션 선택과 지원 기능 조회 (`devices`, `session`, `capabilities`) | 프로젝트·설치 빌드·기기를 고정하고, 기존 세션 재사용과 제어권 인계 | 어느 빌드·기기에서 확인했는지 추적할 근거 |
 
-이미지 비교는 이 플러그인의 Python 도구가, Figma 기준 이미지 내보내기는 연결된 Figma 도구가 담당합니다. 계정 조회·비밀 입력은 별도 `test-accounts` 스킬을 쓰며 일반 `fill`이나 replay에 비밀번호를 넣지 않습니다. 코드 수정·빌드는 호스트 에이전트가 프로젝트 절차로 수행하고, 준비된 앱의 설치는 지원되는 도구로 수행합니다. `agent-device` 자체가 소스를 수정·빌드하는 것은 아닙니다. [2], [3]
+이미지 비교는 이 플러그인의 Python 도구가, Figma 기준 이미지 내보내기는 연결된 Figma 도구가 담당합니다. 계정은 별도 `test-accounts` 스킬로 저장·조회하고, AI가 읽은 계정값을 일반 기기·브라우저 입력 도구에 전달해 로그인합니다. 코드 수정·빌드는 호스트 에이전트가 프로젝트 절차로 수행하고, 준비된 앱의 설치는 지원되는 도구로 수행합니다. `agent-device` 자체가 소스를 수정·빌드하는 것은 아닙니다. [2], [3]
 
 기능 QA에는 Figma가 필요 없습니다. 이미 로그인된 세션이면 계정 도구도 필요 없고, PNG 두 장만 비교할 때는 기기와 `agent-device` 없이 이미지 비교 도구를 사용할 수 있습니다. 세부 명령과 여섯 가지 워크플로우는 [운영 레퍼런스](docs/operations.md#agent-device의-기능과-플러그인의-역할)에 있습니다.
 
@@ -234,7 +234,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 [2] Mobile QA, [디자인 검수 절차](skills/mobile-device-qa/references/design-review.md) 및 [이미지 비교 구현](skills/mobile-device-qa/scripts/compare_screenshots.py). PNG 입력·색 처리·제외 영역·수치·재촬영 근거.
 
-[3] Mobile QA, [시험 계정 스킬](skills/test-accounts/SKILL.md). 평문 저장·프로필 신뢰·입력 정리·버전 고정·서명 조건.
+[3] Mobile QA, [시험 계정 스킬](skills/test-accounts/SKILL.md). 로컬 평문 계정 저장·조회·갱신과 일반 입력 도구를 통한 로그인 절차.
 
 외부 조사는 2026-10-23에 확인했습니다. [4]와 [5]는 공개된 1차 자료에서 수치를 직접 확인했고, [6]과 [7]의 수치는 보고서 본문이 등록·구독 뒤에 있어 공개 보도와 요약 페이지에서 인용했습니다.
 

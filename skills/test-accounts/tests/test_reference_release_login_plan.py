@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import test_accounts as cli
+import native_accounts as cli
 
 
 class TrustedLoginProfileTests(unittest.TestCase):

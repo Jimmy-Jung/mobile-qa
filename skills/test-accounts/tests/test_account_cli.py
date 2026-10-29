@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import test_accounts as cli
+import native_accounts as cli
 from account_catalog import Catalog
 
 REF = "b3BhcXVlLXJlZmVyZW5jZQ=="

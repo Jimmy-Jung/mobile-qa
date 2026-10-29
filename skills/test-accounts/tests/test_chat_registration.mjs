@@ -100,7 +100,7 @@ test('rejects invalid metadata, malformed options and credentials before spawnin
     { ...options, capabilities: ['valid', 'BAD'] }, { ...options, relatedProjects: ['relative'] },
     { ...options, relatedEnvironments: ['BAD'] }, { ...options, username: '' },
     { ...options, password: 123 }, { ...options, password: '\ud800' },
-    { ...options, password: '한'.repeat(6000) }, { ...options, timeoutMs: 0 },
+    { ...options, password: '한'.repeat(6000) },
     { ...options, unexpected: credentialFixture.password },
   ];
   for (const value of invalid) assert.deepEqual(await registerChatAccount(value), {
@@ -161,15 +161,23 @@ test('handles stdin failures without exposing the payload or retrying', async t 
   const { child, signals, spawn } = mockChild(t, { idle: true });
   const pending = registerChatAccount(options);
   child.stdin.emit('error', new Error(credentialFixture.password));
+  child.emit('close', 1, null);
   assert.deepEqual(await pending, { status: 'uncertain', code: 'registration_input_failed' });
-  assert.deepEqual(signals, ['SIGTERM']);
+  assert.deepEqual(signals, []);
   assert.equal(spawn.mock.callCount(), 1);
 });
 
-test('bounds its wait, stops its own child and reports an uncertain save outcome', async t => {
-  const { signals } = mockChild(t, { idle: true });
-  assert.deepEqual(await registerChatAccount({ ...options, timeoutMs: 5 }), {
-    status: 'uncertain', code: 'registration_timed_out',
-  });
-  assert.deepEqual(signals, ['SIGTERM']);
+test('waits for delayed registration without force-stopping a partially saved account', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { child, signals } = mockChild(t, { idle: true });
+  let completed = false;
+  const pending = registerChatAccount({ ...options, timeoutMs: 5 }).then(result => { completed = true; return result; });
+  t.mock.timers.tick(600_000);
+  await Promise.resolve();
+  assert.equal(completed, false);
+  assert.deepEqual(signals, []);
+  child.stdout.end(JSON.stringify(response()) + '\n');
+  child.emit('close', 0, null);
+  assert.equal((await pending).status, 'registered');
+  assert.deepEqual(signals, []);
 });

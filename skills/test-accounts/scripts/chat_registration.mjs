@@ -1,4 +1,4 @@
-// Author: JunyoungJung · 2026-10-27.
+// Author: JunyoungJung · 2026-10-29.
 // Current-chat import only: no stored credential reads and no shell execution.
 import childProcess from 'node:child_process';
 import { isAbsolute } from 'node:path';
@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPT = fileURLToPath(new URL('./test_accounts.py', import.meta.url));
 const OUTPUT_LIMIT = 64 * 1024;
-const MAX_WAIT_MS = 180_000;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const OPTION_KEYS = new Set([
   'pythonExecutable', 'project', 'name', 'environment', 'role',
@@ -42,20 +41,18 @@ function normalized(values) {
 
 function prepare(options) {
   if (!record(options) || Object.keys(options).some(key => !OPTION_KEYS.has(key))) return null;
-  const { pythonExecutable, project, name, environment, role, username, password } = options;
+  const { pythonExecutable, project, name, environment = 'default', role = 'tester', username, password } = options;
   const capabilities = options.capabilities ?? [];
   const relatedProjects = options.relatedProjects ?? [];
   const relatedEnvironments = options.relatedEnvironments ?? [];
-  const timeoutMs = options.timeoutMs ?? MAX_WAIT_MS;
   if (!absolutePath(pythonExecutable) || !absolutePath(project)
       || ![name, environment, role].every(value => typeof value === 'string' && SLUG.test(value))
       || !list(capabilities, value => typeof value === 'string' && SLUG.test(value))
       || !list(relatedProjects, absolutePath)
       || !list(relatedEnvironments, value => typeof value === 'string' && SLUG.test(value))
-      || !text(username, 16384) || !text(password, 16384)
-      || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_WAIT_MS) return null;
+      || !text(username, 16384) || !text(password, 16384)) return null;
   const metadata = {
-    pythonExecutable, name, environment, role, timeoutMs,
+    pythonExecutable, name, environment, role,
     capabilities: normalized(capabilities), relatedProjects: normalized(relatedProjects),
     relatedEnvironments: normalized(relatedEnvironments.filter(value => value !== environment)),
   };
@@ -121,45 +118,33 @@ function run(prepared) {
       return;
     }
     let settled = false;
-    let closed = false;
     let bytes = 0;
     const chunks = [];
-    let escalation;
-    const timer = setTimeout(() => finish({ status: 'uncertain', code: 'registration_timed_out' }, true), metadata.timeoutMs);
-    function finish(result, stop = false) {
+    let failure;
+    function finish(result) {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
       chunks.length = 0;
-      if (stop && !closed) {
-        child.stdin.destroy();
-        try { child.kill('SIGTERM'); } catch { /* Stop only the process created here. */ }
-        escalation = setTimeout(() => {
-          if (!closed) try { child.kill('SIGKILL'); } catch { /* Outcome remains uncertain. */ }
-        }, 1000);
-        escalation.unref();
-      }
       resolve(result);
     }
     child.on('error', () => finish({ status: 'error', code: 'registration_unavailable' }));
-    child.stdin.on('error', () => finish({ status: 'uncertain', code: 'registration_input_failed' }, true));
-    child.stdout.on('error', () => finish({ status: 'uncertain', code: 'registration_response_invalid' }, true));
+    child.stdin.on('error', () => { failure = { status: 'uncertain', code: 'registration_input_failed' }; });
+    child.stdout.on('error', () => { failure = { status: 'uncertain', code: 'registration_response_invalid' }; });
     child.stdout.on('data', chunk => {
       if (settled) return;
       bytes += chunk.length;
       if (bytes > OUTPUT_LIMIT) {
-        finish({ status: 'uncertain', code: 'registration_response_invalid' }, true);
+        failure = { status: 'uncertain', code: 'registration_response_invalid' };
+        chunks.length = 0;
       } else chunks.push(chunk);
     });
     child.on('close', (code, signal) => {
-      closed = true;
-      clearTimeout(escalation);
-      if (!settled) finish(safeResponse(chunks, code, signal, metadata));
+      if (!settled) finish(failure ?? safeResponse(chunks, code, signal, metadata));
     });
     try {
       child.stdin.end(payload, 'utf8');
     } catch {
-      finish({ status: 'uncertain', code: 'registration_input_failed' }, true);
+      failure = { status: 'uncertain', code: 'registration_input_failed' };
     }
   });
 }

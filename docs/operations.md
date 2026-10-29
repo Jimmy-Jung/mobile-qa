@@ -1,6 +1,6 @@
 # Mobile QA 운영 레퍼런스
 
-Author: JunyoungJung · 2026-10-28 · Version: 0.3.1
+Author: JunyoungJung · 2026-10-29 · Version: 0.3.2
 
 이 문서는 에이전트와 운영자가 참조하는 상세 절차입니다. 플러그인이 무엇이고 왜 쓰는지는 [README](../README.md)에 있습니다. 경로와 명령은 지원 운영체제인 macOS 기준입니다.
 
@@ -34,7 +34,7 @@ GitHub은 Mermaid를 직접 표시합니다. VSCode 기본 Markdown Preview에�
 4. 기능을 관찰하거나 같은 화면 조건의 이미지를 비교합니다. 수정한 경우 새 빌드가 설치됐는지 확인하고 다시 촬영합니다.
 5. 리포트와 첨부물을 받고, 확인한 지식과 재사용 흐름을 해당 프로젝트의 전용 저장소에 남깁니다.
 
-준비가 부족하면 해당 항목을 `준비 필요` 또는 `미검증`으로 남깁니다. 기기 점유·보호된 캡처·빌드 불명·입력 정리 미확인을 성공으로 처리하지 않습니다.
+준비가 부족하면 해당 항목을 `준비 필요` 또는 `미검증`으로 남깁니다. 기기 점유·보호된 캡처·빌드 불명을 성공으로 처리하지 않습니다.
 
 ## 작업별 준비물과 결과물
 
@@ -50,7 +50,7 @@ GitHub은 Mermaid를 직접 표시합니다. VSCode 기본 Markdown Preview에�
 | 기존 앱 또는 Figma와 디자인 비교 | 기준 앱/빌드 또는 정확한 Figma 프레임·버전, 새 구현, 같은 화면 조건 | 원본 PNG, 25%·50%·75% 겹침, 차이 이미지·마스크, 픽셀 수치와 불일치 위치 |
 | 차이를 수정하고 재검수 | 수정 가능한 코드 범위, 빌드·설치 절차와 권한 | 최초 수정 전 / 최종 변경 빌드의 수정 후 비교, 코드 위치, 새 캡처, 남은 차이 |
 | 프로젝트 정책·지식·흐름 관리 | 프로젝트 경로, 적용할 정책과 확인한 근거 | 프로젝트별 정책 출처, 확인한 지식, 재사용 흐름과 다시 검증할 조건 |
-| 시험 계정 조회·등록·로그인 | 프로젝트·환경·용도·대상, 전용 입력기를 사용할 때는 신뢰 등록한 프로필 | 선택한 계정 별칭 또는 로그인 결과, 환경 확인·입력 정리 상태 |
+| 시험 계정 저장·조회·로그인 | 프로젝트와 계정 별칭, 필요하면 환경·용도·기기 정보 | 저장 결과 또는 실제 계정값, 인증 후 화면 근거 |
 | 이미 가진 PNG 두 장 비교 | 같은 픽셀 크기와 색 조건의 PNG | 앱·기기·Figma 연결 없이 겹침·차이·픽셀 수치 생성 |
 
 실기기는 준비된 `agent-device` 세션과 기존 흐름을 재사용합니다. iOS Simulator는 [Simulator QA](../skills/mobile-device-qa/references/simulator.md)에 따라 기존 UI 테스트·호스트 화면 제어·이미 설치된 Simulator 도구와 `simctl` 캡처를 사용할 수 있습니다. 실행기(runner)는 UI를 조작하는 프로세스이며 모든 경로에 같은 runner를 요구하지 않습니다. Figma 자료는 이미 연결된 도구로 내보내거나 PNG로 제공하며, 일반 기능 QA에는 Figma가 필요하지 않습니다. 계정 입력은 기본적으로 전용 로컬 창을 사용합니다. 사용자가 현재 채팅에 제공한 새 계정도 전용 등록 경로로 저장·재사용하며 응답이나 리포트에 원문을 반복하지 않습니다.
@@ -83,7 +83,7 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 
 - **Figma 기준 이미지 확보:** 이미 연결된 Figma 도구 또는 제공된 프레임 PNG를 사용합니다. `agent-device`가 Figma 파일을 읽는 것은 아닙니다.
 - **픽셀 비교와 보고:** 플러그인의 Python 비교 도구가 같은 크기의 PNG에서 겹침·차이·수치를 생성하고, 호스트 에이전트가 근거를 검토해 Markdown 리포트와 GIF를 구성합니다. [2]
-- **계정 조회와 비밀 입력:** `test-accounts`와 준비된 전용 입력 도구를 사용합니다. 일반 `fill`, replay 변수, 명령 인자에 비밀번호를 넣지 않습니다. [3]
+- **계정 저장·조회와 로그인:** `test-accounts`로 계정값을 읽어 일반 기기·브라우저 입력 도구에 전달합니다. [3]
 - **소스 수정과 앱 빌드:** 호스트 에이전트가 허용된 코드 범위와 프로젝트의 빌드 절차를 따릅니다. `install`·`reinstall`은 준비된 바이너리의 설치 기능이며 소스 빌드를 대신하지 않습니다.
 
 ## 제공 기능을 조합한 여섯 가지 워크플로우
@@ -92,7 +92,7 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 2. **조건 고정 → 간헐적 버그 재현:** 계정·콘텐츠·설정·시작 상태를 맞추고 같은 동작을 반복하며 필요한 구간의 녹화와 로그를 수집합니다. 재현되지 않은 증상은 수정됐다고 처리하지 않고, 실행 횟수·실패 단계·미검증 조건을 남깁니다. [README의 사례 1](../README.md#사례-1-1년-가까이-재현되지-않던-검은-화면)이 그 적용 예입니다.
 3. **기준 촬영 → 디자인 비교 → 수정 후 재촬영:** 기존 앱 또는 Figma 프레임과 새 구현의 크기·배율·테마·데이터·화면 상태를 맞춥니다. `screenshot` 원본을 별도 비교 도구로 분석하고, 수정이 허용되면 프로젝트 절차로 빌드·설치한 뒤 최초 수정 전과 최종 수정 후를 나란히 보고합니다. [2]
 4. **수정 전후 빌드 준비 → 동일 흐름 회귀 확인:** 호스트 에이전트가 프로젝트 절차로 두 빌드를 준비하고 현재 설치본을 확인합니다. 검증한 batch/replay 또는 기존 테스트를 같은 조건에서 실행해 새 결함·기존 결함·재현 불가를 구분합니다. 화면이나 시작 조건이 다르면 녹화된 좌표를 그대로 재생하지 않습니다. [README의 사례 2](../README.md#사례-2-내-변경이-깬-것인지-가리기)가 그 적용 예입니다.
-5. **인증 확인 → 로그인 경로 실행·복구 → QA 재개:** 정상 로그인 세션을 우선 재사용합니다. 필요한 때만 프로젝트·환경·기기에 맞는 계정을 선택하고 보호된 입력 경로를 사용합니다. 전용 입력기가 실패하면 준비 복구·다른 보호된 경로·꼭 필요한 사용자 조작으로 이어갑니다. 비밀 입력 중 캡처·녹화·트리 조회를 멈추며, 인증·환경·입력 정리 확인 후 원래 QA를 재개합니다. [3]
+5. **계정 조회 → 로그인 → QA 재개:** 정상 세션은 재사용하고, 필요한 계정을 `get`으로 읽어 현재 입력 도구에 전달합니다. 입력 도구가 실패하면 다른 도구로 전환하고 인증 후 화면을 확인해 QA를 계속합니다. [3]
 6. **검증한 실행 → 흐름·지식 저장 → 다음 QA에서 재사용:** `.ad`·YAML·batch 파일 또는 기존 테스트의 위치를 사용 계약·시작/종료 조건·기대값·근거와 함께 프로젝트별 카탈로그에 등록합니다. 다음 실행은 먼저 기존 자산을 검색하고, 실행이 확인되지 않은 후보는 `draft`, 조건이 어긋난 자산은 `needs_revalidation`으로 남깁니다. [5], [반복 동작 관리](../skills/mobile-device-qa/references/reusable-flows.md)
 
 이 워크플로우는 스킬이 정한 실행 절차입니다. 개별 기기·빌드에서 통과했는지는 각 실행의 리포트와 원본 근거로 확인합니다. 메인은 기대값과 최종 판정을 맡고, 선택적 실행 담당자는 조작·관찰 결과를 반환합니다. [6]
@@ -135,11 +135,11 @@ iOS 시스템 UI는 `open com.apple.springboard`로 세션 대상을 바꿔 조�
 | iOS Simulator | Xcode의 `simctl`, 확인한 Simulator·runtime·Simulator용 앱. UI 조작은 기존 테스트·사용 가능한 화면 제어 중 선택하며 `agent-device`·실기기 서명·계정 helper는 필수가 아님 |
 | Android Emulator | 확인한 Emulator·Android 버전·Emulator용 앱과 정확한 ADB serial. 탐색·캡처는 설치된 Android CLI+ADB를 우선하고 CLI 미준비 시 ADB·기존 Android UI 테스트로 진행. 실기기용 `agent-device` 진단은 필수 조건이 아님 |
 | Android 실기기 | 승인된 ADB 연결; 계정 입력 JAR 빌드에는 Android SDK·JDK 추가 필요 |
-| 계정 등록·변경 | macOS 13 이상, 사용자 서명을 준비한 native helper와 비밀값 전용 로컬 입력 창. 현재 채팅에 제공된 새 계정 등록에는 표준 입력 파이프 경로도 지원 |
-| 전용 계정 로그인 | 지원 대상 확인, 저장된 시험 계정, 검토·신뢰 등록한 프로필, 해당 플랫폼 입력 도구, 현재 환경을 확인할 수 있는 로그인 화면. iOS는 직접 USB 실기기와 실행 중인 Simulator를 각각 확인하고 별도 입력 도구 사용 |
+| 계정 등록·변경 | Python 3.10 이상, JSON stdin 또는 터미널에서 입력한 계정 |
+| 계정 저장·조회와 로그인 | Python 3.10 이상, 저장 계정 또는 사용자가 제공한 계정, 현재 대상에서 사용할 입력 도구 |
 | 코드 수정·재검수 | 수정할 checkout과 범위, 프로젝트 빌드·설치 절차, 반영된 빌드를 확인할 방법 |
 
-iOS 전용 계정 입력은 **직접 USB 실기기와 실행 중인 Simulator**에 각각 검증된 `agent-device` 0.21.30 기반 runner 소스를 사용합니다. Simulator는 `build_ios_input.py --simulator` → `build_helper.py --simulator-only`로 준비하며 실기기 인증서를 요구하지 않습니다. 실행 중인 정확한 UUID와 별도 산출물 신원을 확인하고 인증·암호화한 loopback 통신을 사용합니다. 해시(hash)는 해당 소스와 입력 파일의 내용을 식별하는 값입니다. 임의 업데이트·소스 패치·Apple 서명 자동 준비는 수행하지 않습니다. 미서명 컴파일은 기기 실행 준비 완료를 뜻하지 않습니다.
+선택적인 iOS 네이티브 로그인 도구는 자체 runner·서명 조건을 유지합니다. 기본 계정 저장·조회는 Python만으로 실행하며 이 준비와 독립적입니다. [3]
 
 ### 사용자 도구 경로
 
@@ -172,7 +172,7 @@ claude plugin install mobile-qa@mobile-qa-marketplace --scope user
 
 Python 환경에 [requirements.txt](../requirements.txt)의 패키지를 준비하고 `agent-device` 경로의 실기기 QA에는 해당 CLI를 별도로 설치합니다. iOS Simulator 경로에는 `agent-device`를 필수로 요구하지 않습니다. 환경·패키지 캐시·빌드 캐시는 사용하는 프로젝트의 저장 정책을 따릅니다. 이 플러그인은 MCP 서버·상시 서비스·외부 모델 서비스·telemetry·SDK·컴파일 바이너리를 추가하지 않습니다.
 
-로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.3.1 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.1)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
+로컬 checkout이나 ZIP으로 설치할 때는 marketplace source를 실제 플러그인 루트 경로로 바꿉니다. [v0.3.2 릴리스](https://github.com/Jimmy-Jung/mobile-qa/releases/tag/v0.3.2)에서 ZIP과 SHA-256 파일을 받을 수 있습니다. GitHub 배포와 호스트 공식 디렉터리 등재는 별개이며, 형식 근거는 참고문헌 [7]–[10]에 있습니다.
 
 ## 최초 저장소 선택
 
@@ -201,7 +201,7 @@ setup과 native 빌드 도구는 선택한 볼륨을 재검증합니다. **단�
 
 ## 요청 예시
 
-Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선택합니다. Claude Code에서는 `/mobile-qa:mobile-device-qa`, `/mobile-qa:test-accounts`로 시작할 수 있습니다. 아래 예시에서 현재 프로젝트와 확인할 대상·빌드·환경을 구체적으로 지정하세요. 기본 계정 입력은 전용 로컬 창이며, 현재 채팅에 직접 제공한 값도 아래 절차로 저장할 수 있습니다.
+Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선택합니다. Claude Code에서는 `/mobile-qa:mobile-device-qa`, `/mobile-qa:test-accounts`로 시작할 수 있습니다. 아래 예시에서 현재 프로젝트와 확인할 대상·빌드·환경을 구체적으로 지정하세요. 사용자가 알려 준 계정은 로컬에 저장하고 AI가 꺼내 로그인에 사용할 수 있습니다.
 
 ### 기능 QA
 
@@ -227,13 +227,13 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 
 ### 계정 조회와 로그인
 
-> test-accounts로 이 프로젝트의 staging 환경 tester 용도 계정을 찾아줘. 선택한 별칭과 준비 상태만 알려줘. 정상 로그인 세션은 유지하고, 로그인이 필요하면 미리 신뢰 등록한 sample-staging 프로필과 지정한 기기를 사용해줘. 로그인 결과·환경 확인·입력 정리 상태를 구분해서 보고해줘.
+> test-accounts로 이 프로젝트의 계정을 찾아 저장된 아이디·비밀번호로 로그인하고 QA를 계속해줘. 알려 준 새 계정은 로컬에 저장해서 다음 작업에도 사용해줘.
 
-로그인 프로필은 앱·환경·입력 필드·성공 확인 방법을 정의하는 비밀값 없는 JSON 계약입니다. 저장된 계정이 실제로 없을 때만 등록을 안내하며 기본 입력은 전용 로컬 창입니다. 사용자가 현재 채팅에 아이디·비밀번호를 제공했다면 `register --credentials-stdin`의 전용 파이프로 저장하고 해당 별칭을 조회해 로그인에 사용합니다. 같은 값을 다시 입력하도록 요구하지 않습니다. 원문은 명령 인자·환경변수·파일·클립보드·출력에 넣지 않습니다. 채팅·호스트 도구 입력 기록의 삭제는 보장하지 않습니다. 자세한 연결은 [채팅 계정 등록](../skills/test-accounts/SKILL.md#채팅으로-제공한-계정-저장과-재사용)을 따릅니다. 새 앱의 비밀 없는 프로필은 승인된 로그인 범위에서 검토·등록합니다. [가상 프로필](../skills/test-accounts/examples/login-profile.example.json)을 그대로 신뢰하지 말고 실제 앱 ID·환경·용도·화면 selector와 대조한 후 `register-profile --project PROJECT --file JSON`으로 명시 등록합니다. `login`에는 `--login-profile NAME`이 필요합니다. release·도구·프로필 내용이 바뀌면 다시 검토·등록합니다. 자세한 준비와 호출은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
+`find --project PROJECT` 또는 `list`로 별칭을 고르고 `get ALIAS`로 실제 `username`·`password`를 읽습니다. AI는 일반 기기·브라우저 도구의 `fill`·`type`·`setValue`로 입력합니다. 환경·용도·기기 라벨은 선택에 필요한 경우에만 검색 조건으로 사용합니다. 기본 저장·조회에는 전용 helper·서명·runner·프로필·빌드가 필요하지 않습니다.
 
-입력 도구 준비·빌드 전에 대상 지원 여부를 확인합니다. UUID형 iOS 대상은 전용 `login`이 계정 목록·프로필·helper 접근 전에 `simctl` 목록과 대조합니다. `login_target_unverified`·`ios_target_unverified`이면 대상을 확인하고 `simulator_not_booted`이면 지정한 Simulator의 부팅·가용 상태를 확인합니다. Simulator용 준비와 다른 경로의 인증을 요청한 대상에 맞춰 선택합니다. 지원 대상의 프로필 준비와 필요한 기존 도구 빌드는 같은 로그인 요청에서 수행합니다. 전용 iOS 입력기의 환경 버튼·프로필 조건을 다른 경로에 일괄 요구하지 않습니다. 같은 실패를 반복하지 않되 준비 부족만으로 로그인을 종료하지 않으며, 자동 경로가 없으면 필요한 직접 입력만 요청하고 `사용자 입력 대기`로 유지합니다. 입력 종료·정리 확인으로 화면 조회를 재개한 뒤 인증·실제 환경을 확인하고 원래 QA를 이어갑니다. 새 입력 엔진·runner·합성 로그인 앱 제작이나 앱 개조는 로그인 선행 조건이 아니며 별도 개발 작업입니다. 자세한 순서는 [로그인 복구 절차](../skills/test-accounts/SKILL.md#막혔을-때의-복구)를 따릅니다.
+사용자가 알려 준 계정은 `register --name ALIAS --credentials-stdin`에 JSON stdin으로 저장합니다. 환경 기본값은 `default`, 용도는 `tester`이며 알려진 값은 함께 지정합니다. 기존 별칭은 `update ALIAS --credentials-stdin`으로 갱신합니다. 기존 로컬 파일 형식을 유지하므로 재등록하지 않고 사용할 수 있습니다. 저장 경로와 명령은 [test-accounts](../skills/test-accounts/SKILL.md)에 있습니다. [3]
 
-전용 iOS 입력기의 환경 확인은 유일한 활성·조작 가능·선택된 버튼을 요구합니다. Simulator에서 옵션 화면에 있는 환경은 검토한 `environment_navigation`의 고정 열기·확인·닫기 절차로 확인합니다. 승인된 프로필에 `select_if_needed:true`를 명시했을 때만 지정 환경을 선택할 수 있습니다. 로그인·옵션 화면 어디에도 환경 선택 제어가 없는 앱은 빌드 근거로 환경을 확인한 뒤 `environment_selector: null`로 등록합니다. 이때 결과는 `environment_verified:false`와 `environment_check:"not_configured"`로 화면 관측이 없었음을 표시합니다. 실제 화면이 이 계약을 충족하지 않으면 구체적인 실패 코드를 보고하고 앱을 임의로 개조하지 않습니다. 사용자가 채팅에 계정을 제공해도 원문을 일반 CUA `setValue`/`type`·`fill`·JavaScript·셸 인자·환경변수·클립보드로 전달하지 않습니다. 현재 대상에서 검증된 기존 보호 입력 경로를 사용하고, 없으면 위 복구 절차의 사용자 직접 입력으로 이어갑니다. 사용자 직접 앱 입력 중 화면 조회·캡처·녹화를 멈춥니다. 불필요한 계정 재등록은 요구하지 않습니다.
+정상 세션은 재사용합니다. 전용 입력기가 실패하면 다른 사용 가능한 입력 도구로 전환하며, 사용자 입력 중이라는 이유나 `cleanup` 미확인만으로 화면 조회·캡처·녹화와 전체 QA를 일괄 중단하지 않습니다. 추가 인증 등 꼭 필요한 사용자 조작만 요청하고 독립 작업을 계속합니다. 제출 결과가 불명확하면 현재 화면·세션을 먼저 확인하며 인증 후 화면이나 서버 응답으로 로그인 성공을 확인한 뒤 원래 QA를 이어갑니다. 실제 계정값은 답변·공유 보고서·저장소에 반복하지 않습니다.
 
 ## 결과물 구조와 수치 해석
 
@@ -273,7 +273,7 @@ Codex에서는 설치된 `mobile-device-qa` 또는 `test-accounts` 스킬을 선
 | 대표 조작 GIF | 실제 조작과 시간 순서를 확인. 정지 이미지를 반복한 자료로 대체하지 않음 |
 | 프로젝트 지식 갱신 요약 | 저장한 항목·근거·적용 범위·다시 검증할 조건을 확인 |
 
-`raw_exact`는 색 변환·마스크 적용 전 전체 RGBA 픽셀의 일치 여부입니다. RGBA는 빨강·초록·파랑·투명도 채널을 뜻하며, `compared_exact`는 선언한 색 처리 후 제외하지 않은 픽셀에서의 일치 여부입니다. `cleanup`이 미확인·실패이면 입력값이 남아 있을 수 있으므로 일반 캡처·녹화·화면 트리 수집과 로그인 재제출을 중단합니다. [2], [3]
+`raw_exact`는 색 변환·마스크 적용 전 전체 RGBA 픽셀의 일치 여부입니다. RGBA는 빨강·초록·파랑·투명도 채널을 뜻하며, `compared_exact`는 선언한 색 처리 후 제외하지 않은 픽셀에서의 일치 여부입니다. `cleanup`은 선택적인 전용 입력기의 진단값이며 기본 계정 조회나 QA 재개의 선행 조건이 아닙니다. [2], [3]
 
 크기·상태가 다른 이미지를 자동 확대·정렬·크롭해 일치시키지 않습니다. 다시 촬영·내보내기해 조건을 맞춥니다. 비교 명령의 종료 코드 0은 실행 완료이며 픽셀 일치나 디자인 전체 통과를 뜻하지 않습니다. 마스크가 있으면 제외 영역 밖 결과만, 색 변환이 있으면 해당 변환 후 결과만 주장합니다. 기능·접근성·재생·성능과 다른 기기의 통과는 별도 근거가 필요합니다.
 
@@ -306,7 +306,7 @@ claude plugin validate . --strict
 claude plugin validate .claude-plugin/plugin.json --strict
 ```
 
-메인테이너가 최종 공개 소스를 검토한 뒤 `python3 -B scripts/package.py --write-inventory`로 `release.json`을 명시 동결합니다. 소비자가 실행 오류를 우회하려고 재생성하지 않습니다. `python3 -B scripts/package.py --output-dir /selected/storage/folder`는 release·공개 파일 검사를 통과한 파일만 압축합니다. 문서·예시가 포함된 release 내용이 바뀌어도 해당 helper·runner와 프로필 신뢰를 다시 준비해야 합니다.
+메인테이너가 최종 공개 소스를 검토한 뒤 `python3 -B scripts/package.py --write-inventory`로 `release.json`을 명시 동결합니다. 소비자가 실행 오류를 우회하려고 재생성하지 않습니다. `python3 -B scripts/package.py --output-dir /selected/storage/folder`는 release·공개 파일 검사를 통과한 파일만 압축합니다. 선택적인 네이티브 로그인 도구를 계속 사용할 때는 변경된 release에 맞춰 해당 helper·runner와 프로필 신뢰를 준비합니다. 기본 계정 저장·조회는 이 준비와 독립적입니다.
 
 자체 코드는 MIT이며 upstream 고지는 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)에 보존합니다. 문서의 합성 예시·정적 검사·컴파일 성공은 실제 호스트 설치·실기기 로그인·앱 QA·공개 게시의 성공을 뜻하지 않습니다.
 
@@ -318,7 +318,7 @@ claude plugin validate .claude-plugin/plugin.json --strict
 
 [2] Mobile QA, [디자인 검수 절차](../skills/mobile-device-qa/references/design-review.md) 및 [이미지 비교 구현](../skills/mobile-device-qa/scripts/compare_screenshots.py). PNG 입력·색 처리·제외 영역·수치·재촬영 근거.
 
-[3] Mobile QA, [시험 계정 스킬](../skills/test-accounts/SKILL.md) 및 [iOS 입력 빌더](../skills/test-accounts/scripts/build_ios_input.py). 평문 저장·프로필 신뢰·입력 정리·버전 고정·서명 조건.
+[3] Mobile QA, [시험 계정 스킬](../skills/test-accounts/SKILL.md) 및 [iOS 입력 빌더](../skills/test-accounts/scripts/build_ios_input.py). 로컬 평문 계정 저장·조회·갱신과 일반 입력 도구를 통한 로그인 절차.
 
 [4] Mobile QA, [설정 스킬](../skills/setup/SKILL.md), [저장 위치 검사](../mobile_qa/storage.py), [준비 상태 진단](../scripts/doctor.py). 최초 폴더 선택·볼륨 재검증·읽기 전용 점검 근거.
 
